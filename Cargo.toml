@@ -1,7 +1,15 @@
 [package]
 name = "hudlc"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 kdl = "6.5.0"
+regex = "1.10.0" # Needed for PreParser
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hudlc"
+path = "src/main.rs"
