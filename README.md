@@ -1,18 +1,20 @@
-# hudl: The Go-Native KDL Templating Language
+# Hudl: The WASM-Native KDL Templating Language
 
-**hudl** is a type-safe templating language that compiles KDL document structures (specifically **KDL v2**) into efficient, executable Go functions. It combines the clean, node-based syntax of KDL with the performance and type safety of Go.
+**Hudl** is a type-safe templating language that compiles KDL (v2) document structures into high-performance **WebAssembly (WASM)** modules. It leverages the robustness of the Rust KDL ecosystem for parsing and compilation, while remaining easy to embed in Go applications using **wazero**.
 
-Designed to be used with a dedicated Language Server Protocol (LSP) implementation, `hudl` provides a development experience similar to writing native code, complete with auto-formatting, type checking, and exhaustiveness analysis.
+## Architecture
+
+*   **Compiler (`hudlc`)**: Written in Rust. Compiles `.hu.kdl` templates into a single `.wasm` binary.
+*   **Runtime**: Go application loads the `.wasm` file using `wazero`.
+*   **Views**: Each template file becomes an exported function in the WASM module.
 
 ## Features
 
-* **HTML Mapping**: KDL nodes map directly to HTML tags.
-* **Pug-like Shorthand**: Use `&id` and `.class` selectors; `div` is implied if omitted.
-* **Unquoted Strings**: Clean syntax with minimal noise.
-* **Go Integration**: Directly import Go packages, use Go expressions in backticks, and defined typed parameters.
-* **Control Flow**: Strict `if`, `each` (iterator-based), and `switch` (type-safe pattern matching).
-* **Scoped CSS**: Define component-local styles that are automatically scoped with unique class names.
-* **LSP Powered**: Auto-formatting, instant code generation, and diagnostics.
+*   **HTML Mapping**: KDL nodes map directly to HTML tags.
+*   **WASM Powered**: Templates are compiled to portable, secure WebAssembly instructions.
+*   **KDL v2**: Fully compliant KDL v2 support via `kdl-rs`.
+*   **Go Integration**: Zero-cgo embedding via `wazero`.
+*   **Type Safety**: Strict parameter typing and exhaustiveness checks at compile time.
 
 ---
 
@@ -187,9 +189,9 @@ On save, the LSP normalizes your code:
 * Aligns `case` statements.
 * Enforces indentation.
 
-### Code Generation
+### Compilation
 
-The LSP runs in the background. Saving a `.hu.kdl` file generates a sibling `.hu.kdl.go` file containing the generated Go functions, ready to be called from your HTTP handlers and compiled into the main go binary.
+Running `hudlc` compiles your `.hu.kdl` files into a single optimized `views.wasm` file. This binary contains all your templates as exported functions, ready to be called from your host application.
 
 ### Diagnostics
 
