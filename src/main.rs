@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use hudlc::{parser, transformer, codegen};
 
@@ -43,7 +43,6 @@ fn run_build(dir: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> 
                 let doc = parser::parse(&content)?;
                 let root = transformer::transform(&doc)?;
                 
-                // PascalCase the function name
                 let func_name = view_name[..1].to_uppercase() + &view_name[1..];
                 views.push((func_name, root));
             }
@@ -54,29 +53,53 @@ fn run_build(dir: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> 
         return Err("No .hu.kdl files found".into());
     }
 
-    // 2. Generate the Rust library source
-    let lib_source = codegen::generate_wasm_lib(views)?;
-    let tmp_src = "hudl_generated_lib.rs";
-    fs::write(tmp_src, lib_source)?;
+    // 2. Setup temporary Cargo project
+    let build_dir = Path::new("hudl_build");
+    if build_dir.exists() {
+        fs::remove_dir_all(build_dir)?;
+    }
+    fs::create_dir_all(build_dir.join("src"))?;
 
-    // 3. Compile to WASM using rustc
-    println!("Building {}...", output);
-    let status = Command::new("rustc")
+    let cargo_toml = r#"[package]
+name = "hudl_views"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_cbor = "0.11"
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+"#;
+    fs::write(build_dir.join("Cargo.toml"), cargo_toml)?;
+
+    // 3. Generate the Rust library source
+    let lib_source = codegen::generate_wasm_lib(views)?;
+    fs::write(build_dir.join("src/lib.rs"), lib_source)?;
+
+    // 4. Build WASM using cargo
+    println!("Building WASM...");
+    let status = Command::new("cargo")
         .args([
+            "build",
             "--target", "wasm32-unknown-unknown",
-            "--crate-type", "cdylib",
-            "-C", "opt-level=s",
-            "-o", output,
-            tmp_src,
+            "--release",
+            "--manifest-path", "hudl_build/Cargo.toml",
         ])
         .status()?;
 
     if !status.success() {
-        return Err("rustc failed".into());
+        return Err("cargo build failed".into());
     }
 
+    // 5. Copy output
+    let wasm_file = "hudl_build/target/wasm32-unknown-unknown/release/hudl_views.wasm";
+    fs::copy(wasm_file, output)?;
+
     // Cleanup
-    let _ = fs::remove_file(tmp_src);
+    let _ = fs::remove_dir_all(build_dir);
 
     println!("Success! Created {}", output);
     Ok(())

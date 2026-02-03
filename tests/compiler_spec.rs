@@ -121,10 +121,12 @@ el {
     // End-to-end simulation
     let doc = parser::parse(input).unwrap();
     let root = transformer::transform(&doc).unwrap();
-    let rust_code = codegen::generate(&root).expect("Codegen failed");
+    let views = vec![("TestView".to_string(), root)];
+    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
 
     // Verify Rust code contains string writes
-    assert!(rust_code.contains("r.push_str(\"<div>\");"));
-    assert!(rust_code.contains("r.push_str(\"Hello\");"));
-    assert!(rust_code.contains("r.push_str(\"</div>\");"));
+    assert!(rust_code.contains("r.push_str(\"<div\")"));
+    assert!(rust_code.contains("r.push_str(\">\")"));
+    assert!(rust_code.contains("r.push_str(\"Hello\")"));
+    assert!(rust_code.contains("r.push_str(\"</div>\")"));
 }

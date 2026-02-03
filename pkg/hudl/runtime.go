@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
@@ -50,13 +51,23 @@ func (r *Runtime) Close() error {
 	return r.rt.Close(r.ctx)
 }
 
-func (r *Runtime) Render(viewName string, params []byte) (string, error) {
+func (r *Runtime) Render(viewName string, data any) (string, error) {
 	renderFunc := r.mod.ExportedFunction(viewName)
 	if renderFunc == nil {
 		return "", fmt.Errorf("view function %s not found", viewName)
 	}
 
-	// 1. Allocate memory for input params (CBOR)
+	// 1. Serialize data to CBOR
+	var params []byte
+	if data != nil {
+		var err error
+		params, err = cbor.Marshal(data)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal data to CBOR: %w", err)
+		}
+	}
+
+	// 2. Allocate memory for input params (CBOR)
 	paramPtr := uint64(0)
 	if len(params) > 0 {
 		results, err := r.malloc.Call(r.ctx, uint64(len(params)))
@@ -70,8 +81,7 @@ func (r *Runtime) Render(viewName string, params []byte) (string, error) {
 		defer r.free.Call(r.ctx, paramPtr, uint64(len(params)))
 	}
 
-	// 2. Call the view function
-	// Returns packed u64 (ptr << 32 | len)
+	// 3. Call the view function
 	results, err := renderFunc.Call(r.ctx, paramPtr, uint64(len(params)))
 	if err != nil {
 		return "", fmt.Errorf("render failed: %w", err)
@@ -81,17 +91,13 @@ func (r *Runtime) Render(viewName string, params []byte) (string, error) {
 	ptr := uint32(packed >> 32)
 	size := uint32(packed)
 
-	// 3. Read the result string from memory
+	// 4. Read the result string from memory
 	outBytes, ok := r.mod.Memory().Read(ptr, size)
 	if !ok {
 		return "", fmt.Errorf("failed to read result from memory at %d (size %d)", ptr, size)
 	}
 
-	// We should probably free the string memory in WASM?
-	// Our generated code uses `mem::forget` to keep it alive for us.
-	// We need a way to free it after reading.
-	// For now, let's assume we leak it or add a hudl_free_string.
-	// Actually, hudl_free can be used if we know the size.
+	// 5. Free the string memory in WASM
 	defer r.free.Call(r.ctx, uint64(ptr), uint64(size))
 
 	return string(outBytes), nil

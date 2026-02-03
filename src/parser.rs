@@ -2,9 +2,9 @@ use kdl::{KdlDocument, KdlError};
 use regex::Regex;
 
 pub fn parse(input: &str) -> Result<KdlDocument, KdlError> {
-    // let normalized = pre_parse(input);
+    let normalized = pre_parse(input);
     // println!("--- NORMALIZED ---\n{}\n------------------", normalized);
-    input.parse()
+    normalized.parse()
 }
 
 fn pre_parse(input: &str) -> String {
@@ -21,9 +21,6 @@ fn pre_parse(input: &str) -> String {
 
     let selector_regex = Regex::new(r"(^|[\s{};])([&.][\w.&-]*|[a-zA-Z_\-][\w\-]*[\.][\w.&-]*)").unwrap();
     result = selector_regex.replace_all(&result, "$1\"$2\"").to_string();
-
-    let backtick_regex = Regex::new(r#"`([^`]*)`"#).unwrap();
-    result = backtick_regex.replace_all(&result, "\"$0\"").to_string();
 
     let at_rule_regex = Regex::new(r"(^|[\s{};])(@[a-zA-Z_\-]+)").unwrap();
     result = at_rule_regex.replace_all(&result, "$1\"$2\"").to_string();
