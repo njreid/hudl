@@ -1,0 +1,53 @@
+{
+    "name": "hudl-vscode",
+    "displayName": "Hudl Support",
+    "description": "Language support for Hudl templates (.hu.kdl)",
+    "version": "0.1.0",
+    "publisher": "hudl",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "activationEvents": [
+        "onLanguage:hudl"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "hudl",
+                "aliases": [
+                    "Hudl",
+                    "hudl"
+                ],
+                "extensions": [
+                    ".hu.kdl",
+                    ".hudl"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "hudl",
+                "scopeName": "source.hudl",
+                "path": "./syntaxes/hudl.tmLanguage.json"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^8.1.0"
+    },
+    "devDependencies": {
+        "@types/node": "^16.11.7",
+        "@types/vscode": "^1.75.0",
+        "typescript": "^4.9.5"
+    }
+}
