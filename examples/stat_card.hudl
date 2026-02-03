@@ -1,0 +1,37 @@
+/**
+enum StatVariant {
+    VARIANT_DEFAULT = 0;
+    VARIANT_SUCCESS = 1;
+    VARIANT_WARNING = 2;
+    VARIANT_DANGER = 3;
+}
+
+message StatCardData {
+    string label = 1;
+    string value = 2;
+    StatVariant variant = 3;
+}
+*/
+
+// name: StatCard
+// data: StatCardData
+
+el {
+    .stat-card.bg-slate-800.p-6.rounded-lg {
+        h3.text-slate-400.text-sm.uppercase `label`
+        switch `variant` {
+            case VARIANT_SUCCESS {
+                p.text-3xl.font-mono.mt-2.text-green-400 `value`
+            }
+            case VARIANT_WARNING {
+                p.text-3xl.font-mono.mt-2.text-yellow-400 `value`
+            }
+            case VARIANT_DANGER {
+                p.text-3xl.font-mono.mt-2.text-red-400 `value`
+            }
+            default {
+                p.text-3xl.font-mono.mt-2 `value`
+            }
+        }
+    }
+}

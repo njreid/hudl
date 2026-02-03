@@ -1,0 +1,12 @@
+/home/njr/code/hkdl/lsp/target/debug/deps/fluent_uri-e7951e6ee0875188.d: /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/lib.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/mod.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/table.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/imp.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/fmt.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/view.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/parser.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/internal.rs
+
+/home/njr/code/hkdl/lsp/target/debug/deps/libfluent_uri-e7951e6ee0875188.rmeta: /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/lib.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/mod.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/table.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/imp.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/fmt.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/view.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/parser.rs /home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/internal.rs
+
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/lib.rs:
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/mod.rs:
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/table.rs:
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/enc/imp.rs:
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/fmt.rs:
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/view.rs:
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/parser.rs:
+/home/njr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fluent-uri-0.1.4/src/internal.rs:

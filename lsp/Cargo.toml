@@ -5,6 +5,10 @@ edition = "2024"
 
 [dependencies]
 hudlc = { version = "0.1.0", path = ".." }
+kdl = "6.5.0"
 lsp-types = "0.97.0"
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.49.0", features = ["full", "process", "io-util"] }
 tower-lsp = "0.20.0"
+regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

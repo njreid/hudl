@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use hudlc::{parser, transformer, codegen};
 
@@ -29,7 +29,7 @@ fn main() {
 fn run_build(dir: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut views = Vec::new();
 
-    // 1. Scan for .hu.kdl files
+    // 1. Scan for .hudl files
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -50,7 +50,7 @@ fn run_build(dir: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> 
     }
 
     if views.is_empty() {
-        return Err("No .hu.kdl files found".into());
+        return Err("No .hudl files found".into());
     }
 
     // 2. Setup temporary Cargo project

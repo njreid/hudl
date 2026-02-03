@@ -1,1 +1,7 @@
 /target
+/bin
+lsp/target/
+views.wasm
+examples/go-app/go-app
+fix_*.go
+*.wasm

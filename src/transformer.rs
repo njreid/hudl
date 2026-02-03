@@ -1,10 +1,13 @@
 use kdl::{KdlDocument, KdlNode};
+use regex::Regex;
 use crate::ast::{ControlFlow, SwitchCase, Root, Node, Element, Text};
 use std::collections::HashMap;
 
 pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
     let mut nodes = Vec::new();
     let mut css = None;
+    let name = None;
+    let data_type = None;
 
     for node in doc.nodes() {
         if node.name().value() == "el" {
@@ -21,7 +24,27 @@ pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
             }
         }
     }
-    Ok(Root { nodes, css })
+    Ok(Root { nodes, css, name, data_type })
+}
+
+/// Extract component metadata from raw content (before KDL parsing)
+pub fn extract_metadata(content: &str) -> (Option<String>, Option<String>) {
+    let name_re = Regex::new(r"//\s*name:\s*(\w+)").unwrap();
+    let data_re = Regex::new(r"//\s*data:\s*([\w.]+)").unwrap();
+
+    let name = name_re.captures(content).map(|c| c[1].to_string());
+    let data_type = data_re.captures(content).map(|c| c[1].to_string());
+
+    (name, data_type)
+}
+
+/// Transform with metadata extraction from raw content
+pub fn transform_with_metadata(doc: &KdlDocument, raw_content: &str) -> Result<Root, String> {
+    let mut root = transform(doc)?;
+    let (name, data_type) = extract_metadata(raw_content);
+    root.name = name;
+    root.data_type = data_type;
+    Ok(root)
 }
 
 fn process_css(node: &KdlNode) -> Result<String, String> {
@@ -39,7 +62,7 @@ fn process_css(node: &KdlNode) -> Result<String, String> {
             css_output.push_str(&selector);
             css_output.push_str(" { ");
             
-            for entry in rule.entries() {
+            for _entry in rule.entries() {
                 // Property name is usually the entry name?
                 // Wait, KDL: `margin _0;` -> node `margin` with arg `_0`.
                 // But here we are iterating *children* of `css`.
@@ -177,34 +200,29 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                 }));
             }
             "each" => {
+                // New syntax: each binding `iterable` { ... }
+                // Two positional arguments: binding name and CEL expression
                 let args: Vec<String> = node.entries().iter()
                     .filter_map(|e| if e.name().is_none() { e.value().as_string().map(|s| s.to_string()) } else { None })
                     .collect();
 
-                let (index_var, variable) = match args.len() {
-                    2 => (Some(args[0].clone()), args[1].clone()),
-                    1 => (None, args[0].clone()),
-                    _ => return Err("each expects 1 or 2 arguments: [index] item".to_string()),
-                };
+                if args.len() != 2 {
+                    return Err("each expects 2 arguments: binding `iterable`".to_string());
+                }
 
-                let iterable = node.entries().iter()
-                    .find(|e| e.name().map(|n| n.value() == "of").unwrap_or(false))
-                    .and_then(|e| e.value().as_string())
-                    .ok_or("each missing 'of' property")?
-                    .trim_matches('`')
-                    .to_string();
+                let binding = args[0].clone();
+                let iterable = args[1].trim_matches('`').to_string();
 
-                let children = if let Some(children) = node.children() {
+                let body = if let Some(children) = node.children() {
                     transform_block(children.nodes())?
                 } else {
                     Vec::new()
                 };
 
                 result.push(Node::ControlFlow(ControlFlow::Each {
-                    variable,
-                    index_var,
+                    binding,
                     iterable,
-                    children,
+                    body,
                 }));
             }
             "switch" => {
@@ -221,21 +239,19 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                     for child in children.nodes() {
                         match child.name().value() {
                             "case" => {
+                                // Pattern can be a bare identifier (enum value) or string
                                 let pattern = child.entries().get(0)
                                     .and_then(|e| e.value().as_string())
-                                    .map(|s| format!("\"{}\"", s))
-                                    .ok_or("case missing pattern")?;
-                                
+                                    .ok_or("case missing pattern")?
+                                    .to_string();
+
                                 let case_children = if let Some(block) = child.children() {
                                     transform_block(block.nodes())?
                                 } else {
                                     Vec::new()
                                 };
-                                
-                                cases.push(SwitchCase {
-                                    pattern,
-                                    children: case_children,
-                                });
+
+                                cases.push(SwitchCase(pattern, case_children));
                             }
                             "default" => {
                                 let def_children = if let Some(block) = child.children() {

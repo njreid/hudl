@@ -4,7 +4,7 @@
 
 ## Architecture
 
-*   **Compiler (`hudlc`)**: Written in Rust. Compiles `.hu.kdl` templates into a single `.wasm` binary.
+*   **Compiler (`hudlc`)**: Written in Rust. Compiles `.hudl` templates into a single `.wasm` binary.
 *   **Runtime**: Go application loads the `.wasm` file using `wazero`.
 *   **Views**: Each template file becomes an exported function in the WASM module.
 
@@ -191,7 +191,7 @@ On save, the LSP normalizes your code:
 
 ### Compilation
 
-Running `hudlc` compiles your `.hu.kdl` files into a single optimized `views.wasm` file. This binary contains all your templates as exported functions, ready to be called from your host application.
+Running `hudlc` compiles your `.hudl` files into a single optimized `views.wasm` file. This binary contains all your templates as exported functions, ready to be called from your host application.
 
 ### Diagnostics
 

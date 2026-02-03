@@ -27,7 +27,7 @@ The Host and Guest share a linear memory buffer.
 *   **Host**: Reads HTML string from memory.
 
 ### 2. Exported Functions (ABI)
-Each view (e.g., `dashboard.hu.kdl`) exports a function:
+Each view (e.g., `dashboard.hudl`) exports a function:
 
 ```rust
 // Rust (Guest)

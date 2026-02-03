@@ -3,7 +3,9 @@ use std::collections::HashMap;
 #[derive(Debug, PartialEq)]
 pub struct Root {
     pub nodes: Vec<Node>,
-    pub css: Option<String>, // Aggregated CSS content
+    pub css: Option<String>,
+    pub name: Option<String>,      // Component name from // name: comment
+    pub data_type: Option<String>, // Data type from // data: comment
 }
 
 #[derive(Debug, PartialEq)]
@@ -35,10 +37,9 @@ pub enum ControlFlow {
         else_block: Option<Vec<Node>>,
     },
     Each {
-        variable: String, // "item" or "i"
-        index_var: Option<String>, // "i" if dual arg
-        iterable: String, // "items"
-        children: Vec<Node>,
+        binding: String,   // Loop variable name (e.g., "item")
+        iterable: String,  // CEL expression for the collection
+        body: Vec<Node>,
     },
     Switch {
         expr: String,
@@ -47,11 +48,10 @@ pub enum ControlFlow {
     },
 }
 
+/// Switch case: (pattern, children)
+/// Pattern is either an enum value like "STATUS_ACTIVE" or a CEL expression
 #[derive(Debug, PartialEq)]
-pub struct SwitchCase {
-    pub pattern: String,
-    pub children: Vec<Node>,
-}
+pub struct SwitchCase(pub String, pub Vec<Node>);
 
 // Helpers for tests
 impl Node {

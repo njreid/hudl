@@ -1,0 +1,71 @@
+/**
+message RegistrationFormData {
+    string username = 1;
+    string email = 2;
+    bool terms_accepted = 3;
+    string csrf_token = 4;
+    string username_error = 5;
+    string email_error = 6;
+    string password_error = 7;
+}
+*/
+
+// name: RegistrationForm
+// data: RegistrationFormData
+
+el {
+    &registration.container {
+        h1 "Create Account"
+
+        article.form-card {
+            form method=POST action="/register" {
+                input type=hidden name=csrf_token value=`csrf_token`
+
+                label for=username {
+                    "Username"
+                    input type=text name=username id=username placeholder=jdoe123 value=`username`
+                    if `size(username_error) > 0` {
+                        small.validation-msg.text-red-500 `username_error`
+                    }
+                }
+
+                label for=email {
+                    "Email Address"
+                    input type=email name=email id=email placeholder="john@example.com" value=`email`
+                    if `size(email_error) > 0` {
+                        small.validation-msg.text-red-500 `email_error`
+                    }
+                }
+
+                .grid {
+                    label for=password {
+                        "Password"
+                        input type=password name=password id=password
+                    }
+                    label for=confirm {
+                        "Confirm Password"
+                        input type=password name=confirm id=confirm
+                    }
+                }
+
+                if `size(password_error) > 0` {
+                    small.validation-msg.text-red-500 `password_error`
+                }
+
+                label for=terms {
+                    input type=checkbox name=terms id=terms checked=`terms_accepted`
+                    "I agree to the Terms and Conditions"
+                }
+
+                button type=submit class=contrast "Register Now"
+            }
+        }
+
+        footer.text-center {
+            small {
+                "Already have an account? "
+                a href="/login" "Log in here"
+            }
+        }
+    }
+}

@@ -1,4 +1,4 @@
-const fs = require('fs');
+import 'fs';
 const path = require('path');
 
 async function main() {
@@ -24,13 +24,13 @@ async function main() {
     // Similar to Go, we'd need a helper to write params to exports.memory
     // and read the result string back.
     // Assuming 'Dashboard' is exported.
-    
+
     if (exports.Dashboard) {
         // Mock call
         // In reality: write JSON params to memory -> call -> read HTML string ptr
-        const resultPtr = exports.Dashboard(); 
+        const resultPtr = exports.Dashboard();
         console.log(`Rendered ptr: ${resultPtr}`);
-        
+
         // Mock reading string from memory
         // const memory = new Uint8Array(exports.memory.buffer);
         // const html = readString(memory, resultPtr);

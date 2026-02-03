@@ -1,7 +1,7 @@
 {
     "name": "hudl-vscode",
     "displayName": "Hudl Support",
-    "description": "Language support for Hudl templates (.hu.kdl)",
+    "description": "Language support for Hudl templates (.hudl)",
     "version": "0.1.0",
     "publisher": "hudl",
     "engines": {
@@ -23,7 +23,7 @@
                     "hudl"
                 ],
                 "extensions": [
-                    ".hu.kdl",
+                    ".hudl",
                     ".hudl"
                 ],
                 "configuration": "./language-configuration.json"

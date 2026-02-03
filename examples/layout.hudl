@@ -1,0 +1,47 @@
+/**
+message LayoutData {
+    string title = 1;
+    string user_name = 2;
+    bool is_logged_in = 3;
+    string content = 4;  // Pre-rendered HTML from child component
+}
+*/
+
+// name: AppLayout
+// data: LayoutData
+
+el {
+    html lang=en {
+        head {
+            meta charset=utf-8
+            title `title`
+            _stylesheet "/static/css/main.css"
+        }
+        body.bg-slate-900.text-white {
+            &app-root.min-h-screen.flex.flex-col {
+                header.border-b.border-slate-800 {
+                    nav.container.mx-auto.px-4.py-3.flex.items-center.justify-between {
+                        a.text-xl.font-bold href="/" "HUDL App"
+                        .user-menu.flex.items-center.gap-4 {
+                            if `is_logged_in` {
+                                span.text-sm "Hello, `user_name`"
+                                a.btn.btn-sm.btn-outline href="/logout" "Logout"
+                            }
+                            else {
+                                a.btn.btn-sm.btn-primary href="/login" "Login"
+                            }
+                        }
+                    }
+                }
+                main.flex-grow.container.mx-auto.px-4.py-8 {
+                    `raw(content)`
+                }
+                footer.border-t.border-slate-800.py-6.mt-auto {
+                    .container.mx-auto.text-center.text-slate-500 {
+                        p "Built with HUDL & Go"
+                    }
+                }
+            }
+        }
+    }
+}
