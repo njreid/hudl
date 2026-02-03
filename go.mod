@@ -2,7 +2,6 @@ module github.com/njr/hudl
 
 go 1.25.6
 
-require (
-	github.com/calico32/kdl-go v0.10.0 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
-)
+require github.com/tetratelabs/wazero v1.11.0
+
+require golang.org/x/sys v0.38.0 // indirect

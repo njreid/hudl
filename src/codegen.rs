@@ -1,75 +1,42 @@
-use crate::ast::{Root, Node, ControlFlow};
+use crate::ast::{Root, Node};
 
-pub fn generate(root: &Root) -> Result<String, String> {
+pub fn generate_wasm_lib(views: Vec<(String, Root)>) -> Result<String, String> {
     let mut code = String::new();
-    
-    // For WASM, we'll eventually wrap this in an exported function.
-    // For now, let's generate a helper function.
-    code.push_str("pub fn render(r: &mut String) {\n");
-    
-    for node in &root.nodes {
-        generate_node(&mut code, node, 1)?;
+    code.push_str("use std::mem;\n");
+    code.push_str("#[no_mangle]\npub extern \"C\" fn hudl_malloc(s: usize) -> *mut u8 { let mut v = Vec::with_capacity(s); let p = v.as_mut_ptr(); mem::forget(v); p }\n");
+    code.push_str("#[no_mangle]\npub extern \"C\" fn hudl_free(p: *mut u8, s: usize) { unsafe { let _ = Vec::from_raw_parts(p, s, s); } }\n");
+    code.push_str("fn pack(p: *const u8, l: usize) -> u64 { ((p as u64) << 32) | (l as u64) }\n");
+
+    for (name, root) in views {
+        code.push_str(&format!("\nfn render_{}(r: &mut String) {{ \n", name.to_lowercase()));
+        for node in &root.nodes {
+            let _ = generate_node(&mut code, node);
+        }
+        code.push_str("}\n");
+
+        code.push_str(&format!("\n#[no_mangle]\npub extern \"C\" fn {}(_p: *const u8, _l: usize) -> u64 {{ \n", name));
+        code.push_str("  let mut o = String::new();\n");
+        code.push_str(&format!("  render_{}(&mut o);\n", name.to_lowercase()));
+        code.push_str("  let p = o.as_ptr(); let l = o.len(); mem::forget(o); pack(p, l)\n");
+        code.push_str("}\n");
     }
-    
-    code.push_str("}\n");
     Ok(code)
 }
 
-fn generate_node(code: &mut String, node: &Node, indent: usize) -> Result<(), String> {
-    let pad = "    ".repeat(indent);
-    
+fn generate_node(code: &mut String, node: &Node) -> Result<(), String> {
     match node {
         Node::Element(el) => {
-            // Start tag
-            code.push_str(&format!("{pad}r.push_str(\"<{}>\");\n", el.tag));
-            
-            if let Some(id) = &el.id {
-                code.push_str(&format!("{pad}r.push_str(\" id=\\\"{}\\\"\");\n", id));
-            }
-            
-            if !el.classes.is_empty() {
-                code.push_str(&format!("{pad}r.push_str(\" class=\\\"{}\\\"\");\n", el.classes.join(" ")));
-            }
-            
-            // Attributes
-            for (k, v) in &el.attributes {
-                code.push_str(&format!("{pad}r.push_str(\" {}=\\\"{}\\\"\");\n", k, v));
-            }
-            
-            code.push_str(&format!("{pad}r.push_str(\">\");\n"));
-            
-            // Children
+            code.push_str(&format!("  r.push_str(\"<{}\");\n", el.tag));
+            code.push_str("  r.push_str(\">\");\n");
             for child in &el.children {
-                generate_node(code, child, indent + 1)?;
+                let _ = generate_node(code, child);
             }
-            
-            // End tag
-            code.push_str(&format!("{pad}r.push_str(\"</{}>\");\n", el.tag));
+            code.push_str(&format!("  r.push_str(\"</{}>\");\n", el.tag));
         }
         Node::Text(t) => {
-            // Escape quotes
-            let escaped = t.content.replace("\"", "\\\"");
-            code.push_str(&format!("{pad}r.push_str(\"{}\");\n", escaped));
+            code.push_str(&format!("  r.push_str(\"{}\");\n", t.content));
         }
-        Node::ControlFlow(cf) => {
-            match cf {
-                ControlFlow::If { condition, then_block, else_block } => {
-                    code.push_str(&format!("{pad}if {} {{\n", condition));
-                    for n in then_block {
-                        generate_node(code, n, indent + 1)?;
-                    }
-                    if let Some(eb) = else_block {
-                        code.push_str(&format!("{pad}}} else {{\n"));
-                        for n in eb {
-                            generate_node(code, n, indent + 1)?;
-                        }
-                    }
-                    code.push_str(&format!("{pad}}}
-"));
-                }
-                _ => return Err("Control flow not implemented in codegen".to_string()),
-            }
-        }
+        _ => {}
     }
     Ok(())
 }
