@@ -25,7 +25,7 @@
 - [x] **Task 3.1**: Implement serialization protocol (Go struct -> CBOR -> WASM memory).
 - [x] **Task 3.2**: Implement `if / else` logic in Rust codegen.
 - [x] **Task 3.3**: Implement `each` iteration.
-- [ ] **Task 3.4**: Implement `switch` logic.
+- [x] **Task 3.4**: Implement `switch` logic.
 - [ ] **Task 3.5**: Support complex expressions in backticks (mapping to CBOR data).
 
 ## Phase 4: Type Safety & Diagnostics

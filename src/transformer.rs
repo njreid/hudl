@@ -1,5 +1,5 @@
 use kdl::{KdlDocument, KdlNode};
-use crate::ast::{ControlFlow, Root, Node, Element, Text};
+use crate::ast::{ControlFlow, SwitchCase, Root, Node, Element, Text};
 use std::collections::HashMap;
 
 pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
@@ -205,6 +205,55 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                     index_var,
                     iterable,
                     children,
+                }));
+            }
+            "switch" => {
+                let expr = node.entries().get(0)
+                    .and_then(|e| e.value().as_string())
+                    .ok_or("switch node missing expression")?
+                    .trim_matches('`')
+                    .to_string();
+
+                let mut cases = Vec::new();
+                let mut default = None;
+
+                if let Some(children) = node.children() {
+                    for child in children.nodes() {
+                        match child.name().value() {
+                            "case" => {
+                                let pattern = child.entries().get(0)
+                                    .and_then(|e| e.value().as_string())
+                                    .map(|s| format!("\"{}\"", s))
+                                    .ok_or("case missing pattern")?;
+                                
+                                let case_children = if let Some(block) = child.children() {
+                                    transform_block(block.nodes())?
+                                } else {
+                                    Vec::new()
+                                };
+                                
+                                cases.push(SwitchCase {
+                                    pattern,
+                                    children: case_children,
+                                });
+                            }
+                            "default" => {
+                                let def_children = if let Some(block) = child.children() {
+                                    transform_block(block.nodes())?
+                                } else {
+                                    Vec::new()
+                                };
+                                default = Some(def_children);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                result.push(Node::ControlFlow(ControlFlow::Switch {
+                    expr,
+                    cases,
+                    default,
                 }));
             }
             "else" => {

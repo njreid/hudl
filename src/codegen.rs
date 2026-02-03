@@ -195,7 +195,59 @@ fn generate_node(code: &mut String, node: &Node, indent: usize, scope: &Vec<Stri
                 code.push_str(&pad);
                 code.push_str("}\n");
             }
-            _ => {}
+            crate::ast::ControlFlow::Switch { expr, cases, default } => {
+                let val_expr = resolve_variable(expr, scope);
+                // Assign to a temp variable to avoid re-evaluation (though get_value is cheap)
+                // We use a scope-based name to avoid collisions if nested?
+                // Or just a block.
+                code.push_str(&pad);
+                code.push_str("{\n");
+                code.push_str(&pad);
+                code.push_str(&format!("    let _switch_val = {};\n", val_expr));
+                
+                let mut first = true;
+                for case in cases {
+                    code.push_str(&pad);
+                    if first {
+                        code.push_str("    if ");
+                        first = false;
+                    } else {
+                        code.push_str("    else if ");
+                    }
+                    
+                    // Pattern handling: Currently assuming pattern is a string literal "foo"
+                    // We need to convert it to Value::Text("foo".to_string()) comparison.
+                    // If the pattern itself is quoted in AST string: "\"admin\""
+                    let pattern_clean = case.pattern.trim_matches('"');
+                    code.push_str(&format!("_switch_val == Some(&Value::Text(\"{}\".to_string())) {{\n", pattern_clean));
+                    
+                    for child in &case.children {
+                        generate_node(code, child, indent + 2, scope)?;
+                    }
+                    
+                    code.push_str(&pad);
+                    code.push_str("    }\n");
+                }
+                
+                if let Some(def_nodes) = default {
+                    code.push_str(&pad);
+                    if first {
+                        code.push_str("    if true {\n"); // Only default exists
+                    } else {
+                        code.push_str("    else {\n");
+                    }
+                    
+                    for child in def_nodes {
+                        generate_node(code, child, indent + 2, scope)?;
+                    }
+                    
+                    code.push_str(&pad);
+                    code.push_str("    }\n");
+                }
+                
+                code.push_str(&pad);
+                code.push_str("}\n");
+            }
         },
     }
     Ok(())
