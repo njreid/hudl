@@ -10,6 +10,13 @@ struct Backend {
     document_map: Mutex<HashMap<Url, String>>,
 }
 
+const LEGEND_TYPE: &[SemanticTokenType] = &[
+    SemanticTokenType::KEYWORD,
+    SemanticTokenType::VARIABLE,
+    SemanticTokenType::FUNCTION,
+    SemanticTokenType::STRING,
+];
+
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         self.document_map.lock().unwrap().insert(params.uri.clone(), params.text.clone());
@@ -18,11 +25,7 @@ impl Backend {
 
     async fn validate_document(&self, uri: &Url, content: &str) {
         let mut diagnostics = Vec::new();
-
-        // 1. Parse check
         if let Err(e) = hudlc::parser::parse(content) {
-            // Convert KdlError to Diagnostic
-            // Simple mapping for now
             diagnostics.push(Diagnostic {
                 range: Range {
                     start: Position { line: 0, character: 0 },
@@ -33,7 +36,6 @@ impl Backend {
                 ..Default::default()
             });
         }
-
         self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
     }
 }
@@ -47,6 +49,31 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
+                        SemanticTokensRegistrationOptions {
+                            text_document_registration_options: {
+                                TextDocumentRegistrationOptions {
+                                    document_selector: Some(vec![DocumentFilter {
+                                        language: Some("hudl".to_string()),
+                                        scheme: Some("file".to_string()),
+                                        pattern: None,
+                                    }]),
+                                }
+                            },
+                            semantic_tokens_options: SemanticTokensOptions {
+                                work_done_progress_options: WorkDoneProgressOptions::default(),
+                                legend: SemanticTokensLegend {
+                                    token_types: LEGEND_TYPE.to_vec(),
+                                    token_modifiers: vec![],
+                                },
+                                range: Some(false),
+                                full: Some(SemanticTokensFullOptions::Bool(true)),
+                            },
+                            static_registration_options: StaticRegistrationOptions::default(),
+                        },
+                    ),
+                ),
                 ..Default::capabilities()
             },
             ..Default::default()
@@ -54,9 +81,7 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "Hudl LSP initialized")
-            .await;
+        self.client.log_message(MessageType::INFO, "Hudl LSP initialized").await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -83,6 +108,57 @@ impl LanguageServer for Backend {
         }
     }
 
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        let document_map = self.document_map.lock().unwrap();
+        let content = match document_map.get(&uri) {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        // Simplified implementation: regex based highlighting for keywords
+        // Real implementation would use KDL spans
+        let mut tokens = Vec::new();
+        let mut last_line = 0;
+        let mut last_char = 0;
+
+        let keywords = ["if", "else", "each", "switch", "case", "default", "el", "import"];
+        
+        for (i, line) in content.lines().enumerate() {
+            for kw in keywords {
+                if let Some(pos) = line.find(kw) {
+                    // Check if it's a standalone word boundary? 
+                    // For now, naive find
+                    let delta_line = i as u32 - last_line;
+                    let delta_start = if delta_line == 0 {
+                        pos as u32 - last_char
+                    } else {
+                        pos as u32
+                    };
+
+                    tokens.push(SemanticToken {
+                        delta_line,
+                        delta_start,
+                        length: kw.len() as u32,
+                        token_type: 0, // KEYWORD
+                        token_modifiers_bitset: 0,
+                    });
+
+                    last_line = i as u32;
+                    last_char = pos as u32;
+                }
+            }
+        }
+
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data: tokens,
+        })))
+    }
+
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = params.text_document.uri;
         let document_map = self.document_map.lock().unwrap();
@@ -99,7 +175,7 @@ impl LanguageServer for Backend {
                         start: Position { line: 0, character: 0 },
                         end: Position {
                             line: content.lines().count() as u32,
-                            character: 1000, // naive end
+                            character: 1000,
                         },
                     },
                     new_text: formatted,
