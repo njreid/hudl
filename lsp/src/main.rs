@@ -236,11 +236,27 @@ impl Backend {
         // Extract switch statements from content
         let switches = exhaustiveness::extract_switches(content);
 
-        // Check each switch for exhaustiveness
-        let mut analyzer = self.analyzer.lock().unwrap();
-        if let Some(ref mut client) = *analyzer {
-            for switch_info in switches {
-                if let Some(diag) = exhaustiveness::check_switch(&switch_info, scope, client) {
+        // Try to parse proto schema from content for enum type info
+        let proto_schema = hudlc::proto::ProtoSchema::from_template(content).ok();
+        let metadata = param::extract_metadata(content);
+
+        for switch_info in &switches {
+            // First try proto-based exhaustiveness check (uses inline enum definitions)
+            if let Some(ref schema) = proto_schema {
+                if let Some(diag) = exhaustiveness::check_switch_with_proto(
+                    switch_info,
+                    schema,
+                    metadata.data_type.as_deref(),
+                ) {
+                    diagnostics.push(diag);
+                    continue;
+                }
+            }
+
+            // Fall back to Go analyzer-based check
+            let mut analyzer = self.analyzer.lock().unwrap();
+            if let Some(ref mut client) = *analyzer {
+                if let Some(diag) = exhaustiveness::check_switch(switch_info, scope, client) {
                     diagnostics.push(diag);
                 }
             }
@@ -357,35 +373,111 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        // Simplified implementation: regex based highlighting for keywords
-        let mut tokens = Vec::new();
-        let mut last_line = 0;
-        let mut last_char = 0;
+        // Token types: 0=KEYWORD, 1=VARIABLE, 2=FUNCTION, 3=STRING
+        let mut raw_tokens: Vec<(u32, u32, u32, u32)> = Vec::new(); // (line, char, len, type)
 
         let keywords = ["if", "else", "each", "switch", "case", "default", "el", "import"];
 
-        for (i, line) in content.lines().enumerate() {
-            for kw in keywords {
-                if let Some(pos) = line.find(kw) {
-                    let delta_line = i as u32 - last_line;
-                    let delta_start = if delta_line == 0 {
-                        pos as u32 - last_char
-                    } else {
-                        pos as u32
-                    };
+        for (line_num, line) in content.lines().enumerate() {
+            let line_num = line_num as u32;
+            let chars: Vec<char> = line.chars().collect();
+            let mut i = 0;
 
-                    tokens.push(SemanticToken {
-                        delta_line,
-                        delta_start,
-                        length: kw.len() as u32,
-                        token_type: 0, // KEYWORD
-                        token_modifiers_bitset: 0,
-                    });
-
-                    last_line = i as u32;
-                    last_char = pos as u32;
+            while i < chars.len() {
+                // Skip whitespace
+                if chars[i].is_whitespace() {
+                    i += 1;
+                    continue;
                 }
+
+                // Check for comments
+                if i + 1 < chars.len() && chars[i] == '/' && chars[i + 1] == '/' {
+                    break; // Rest of line is a comment
+                }
+
+                // Check for backtick expressions (variables)
+                if chars[i] == '`' {
+                    let start = i;
+                    i += 1;
+                    while i < chars.len() && chars[i] != '`' {
+                        i += 1;
+                    }
+                    if i < chars.len() {
+                        i += 1; // Include closing backtick
+                        raw_tokens.push((line_num, start as u32, (i - start) as u32, 1)); // VARIABLE
+                    }
+                    continue;
+                }
+
+                // Check for strings
+                if chars[i] == '"' {
+                    let start = i;
+                    i += 1;
+                    while i < chars.len() && chars[i] != '"' {
+                        if chars[i] == '\\' && i + 1 < chars.len() {
+                            i += 2; // Skip escaped character
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    if i < chars.len() {
+                        i += 1; // Include closing quote
+                        raw_tokens.push((line_num, start as u32, (i - start) as u32, 3)); // STRING
+                    }
+                    continue;
+                }
+
+                // Check for keywords/identifiers
+                if chars[i].is_ascii_alphabetic() || chars[i] == '_' {
+                    let start = i;
+                    while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                        i += 1;
+                    }
+                    let word: String = chars[start..i].iter().collect();
+
+                    // Check if it's a keyword
+                    if keywords.contains(&word.as_str()) {
+                        raw_tokens.push((line_num, start as u32, word.len() as u32, 0)); // KEYWORD
+                    }
+                    continue;
+                }
+
+                i += 1;
             }
+        }
+
+        // Sort tokens by position
+        raw_tokens.sort_by(|a, b| {
+            if a.0 != b.0 {
+                a.0.cmp(&b.0)
+            } else {
+                a.1.cmp(&b.1)
+            }
+        });
+
+        // Convert to delta format
+        let mut tokens = Vec::new();
+        let mut last_line = 0u32;
+        let mut last_char = 0u32;
+
+        for (line, char_pos, len, token_type) in raw_tokens {
+            let delta_line = line - last_line;
+            let delta_start = if delta_line == 0 {
+                char_pos - last_char
+            } else {
+                char_pos
+            };
+
+            tokens.push(SemanticToken {
+                delta_line,
+                delta_start,
+                length: len,
+                token_type,
+                token_modifiers_bitset: 0,
+            });
+
+            last_line = line;
+            last_char = char_pos;
         }
 
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
@@ -404,7 +496,12 @@ impl LanguageServer for Backend {
 
         match hudlc::parser::parse(content) {
             Ok(doc) => {
-                let formatted = format!("{}", doc);
+                // Use format options from editor
+                let format_options = hudlc::formatter::FormatOptions::new(
+                    params.options.tab_size,
+                    params.options.insert_spaces,
+                );
+                let formatted = hudlc::formatter::format(&doc, &format_options);
                 Ok(Some(vec![TextEdit {
                     range: Range {
                         start: Position { line: 0, character: 0 },

@@ -1,0 +1,21 @@
+# Hudl language configuration for Helix
+# Copy this to ~/.config/helix/languages.toml or merge with existing config
+
+[[language]]
+name = "hudl"
+scope = "source.hudl"
+injection-regex = "hudl"
+file-types = ["hudl"]
+roots = []
+comment-token = "//"
+indent = { tab-width = 2, unit = "  " }
+language-servers = ["hudl-lsp"]
+
+[language-server.hudl-lsp]
+command = "hudl-lsp"
+
+[[grammar]]
+name = "hudl"
+source = { path = "/home/njr/code/hudl/tree-sitter-hudl" }
+# For remote installation, use:
+# source = { git = "https://github.com/user/tree-sitter-hudl", rev = "main" }

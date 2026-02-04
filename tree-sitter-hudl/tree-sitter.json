@@ -1,0 +1,23 @@
+{
+  "grammars": [
+    {
+      "name": "hudl",
+      "camelcase": "Hudl",
+      "scope": "source.hudl",
+      "path": ".",
+      "file-types": ["hudl"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Hudl grammar for tree-sitter"
+  },
+  "bindings": {
+    "c": true,
+    "rust": true,
+    "node": true
+  }
+}

@@ -5,3 +5,7 @@ views.wasm
 examples/go-app/go-app
 fix_*.go
 *.wasm
+hudl-analyzer
+node_modules/
+package.json
+package-lock.json

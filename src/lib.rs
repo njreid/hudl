@@ -3,5 +3,7 @@ pub mod cel;
 pub mod codegen;
 pub mod codegen_cel;
 pub mod expr;
+pub mod formatter;
 pub mod parser;
+pub mod proto;
 pub mod transformer;
