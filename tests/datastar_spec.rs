@@ -3,15 +3,13 @@
 /// These tests verify that Hudl's tilde (~) syntax correctly generates
 /// Datastar-compliant HTML attributes. See DATASTAR_DESIGN.md for the
 /// full specification.
-///
-/// Note: These tests will fail until Datastar support is implemented.
-/// They serve as a specification for the expected behavior.
 
 use hudlc::parser;
 use hudlc::transformer;
+use hudlc::ast::DatastarAttr;
 
 // =============================================================================
-// Helper function to parse and transform, returning the first element
+// Helper functions
 // =============================================================================
 
 fn parse_and_transform(input: &str) -> hudlc::ast::Root {
@@ -21,6 +19,24 @@ fn parse_and_transform(input: &str) -> hudlc::ast::Root {
 
 fn get_first_element(root: &hudlc::ast::Root) -> &hudlc::ast::Element {
     root.nodes[0].as_element().expect("Expected element")
+}
+
+/// Find a datastar attribute by its name prefix (e.g., "on:click", ".active", "let:count")
+fn find_datastar_attr<'a>(el: &'a hudlc::ast::Element, name: &str) -> Option<&'a DatastarAttr> {
+    el.datastar.iter().find(|attr| attr.name == name)
+}
+
+/// Assert a datastar attribute exists with expected value and modifiers
+fn assert_datastar_attr(el: &hudlc::ast::Element, name: &str, expected_value: Option<&str>, expected_mods: &[&str]) {
+    let attr = find_datastar_attr(el, name)
+        .unwrap_or_else(|| panic!("Expected datastar attr '{}' not found. Found: {:?}", name, el.datastar));
+
+    assert_eq!(attr.value.as_deref(), expected_value,
+        "Datastar attr '{}' value mismatch", name);
+
+    let expected_mods: Vec<String> = expected_mods.iter().map(|s| s.to_string()).collect();
+    assert_eq!(attr.modifiers, expected_mods,
+        "Datastar attr '{}' modifiers mismatch", name);
 }
 
 // =============================================================================
@@ -141,7 +157,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_tilde_block_basic() {
     let input = r#"
 el {
@@ -158,14 +173,9 @@ el {
     let el = get_first_element(&root);
 
     assert_eq!(el.tag, "div");
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"handleClick()".to_string())
-    );
-    assert_eq!(
-        el.attributes.get("data-show"),
-        Some(&"$isVisible".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("handleClick()"), &[]);
+    assert_datastar_attr(el, "show", Some("$isVisible"), &[]);
+
     // Verify child is preserved
     assert_eq!(el.children.len(), 1);
     let child = el.children[0].as_element().expect("Expected span element");
@@ -173,7 +183,6 @@ el {
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_tilde_block_class_shorthand() {
     // .active $isActive → data-class-active="$isActive"
     let input = r#"
@@ -190,18 +199,11 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-class-active"),
-        Some(&"$isSelected".to_string())
-    );
-    assert_eq!(
-        el.attributes.get("data-class-disabled"),
-        Some(&"$isLoading".to_string())
-    );
+    assert_datastar_attr(el, ".active", Some("$isSelected"), &[]);
+    assert_datastar_attr(el, ".disabled", Some("$isLoading"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_tilde_block_class_long_form() {
     // class:active $isActive → data-class-active="$isActive"
     let input = r#"
@@ -216,10 +218,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-class-active"),
-        Some(&"$isActive".to_string())
-    );
+    assert_datastar_attr(el, "class:active", Some("$isActive"), &[]);
 }
 
 // =============================================================================
@@ -227,7 +226,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_signal_number() {
     // let:count 0 → data-signals-count="0"
     let input = r#"
@@ -242,16 +240,12 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-signals-count"),
-        Some(&"0".to_string())
-    );
+    assert_datastar_attr(el, "let:count", Some("0"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_signal_string() {
-    // let:name hello → data-signals-name="'hello'"
+    // let:name hello → stored as-is, codegen wraps in quotes
     let input = r#"
 el {
     div {
@@ -264,21 +258,18 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-signals-name"),
-        Some(&"'hello'".to_string())
-    );
+    assert_datastar_attr(el, "let:name", Some("hello"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_signal_boolean() {
-    // let:active true → data-signals-active="true"
+    // let:active "true" → data-signals-active="true"
+    // Note: KDL requires booleans to be quoted when used as bare values
     let input = r#"
 el {
     div {
         ~ {
-            let:active true
+            let:active "true"
         }
     }
 }
@@ -286,14 +277,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-signals-active"),
-        Some(&"true".to_string())
-    );
+    assert_datastar_attr(el, "let:active", Some("true"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_signal_with_ifmissing_modifier() {
     // let:count~ifmissing 0 → data-signals-count__ifmissing="0"
     let input = r#"
@@ -308,10 +295,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-signals-count__ifmissing"),
-        Some(&"0".to_string())
-    );
+    assert_datastar_attr(el, "let:count", Some("0"), &["ifmissing"]);
 }
 
 // =============================================================================

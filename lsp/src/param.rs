@@ -40,6 +40,21 @@ pub struct ProtoDefinition {
     pub end_line: u32,
 }
 
+/// A param definition from `// param:` comments
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamDef {
+    pub name: String,
+    pub type_path: String,
+    pub package: Option<String>,
+}
+
+/// An import from `// import:` comments
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportDef {
+    pub alias: String,
+    pub path: String,
+}
+
 /// Metadata extracted from a Hudl template
 #[derive(Debug, Clone, Default)]
 pub struct ViewMetadata {
@@ -51,6 +66,10 @@ pub struct ViewMetadata {
     pub proto_imports: Vec<ProtoImport>,
     /// Inline proto definitions
     pub proto_definitions: Vec<ProtoDefinition>,
+    /// Params from `// param:` comments
+    pub params: Vec<ParamDef>,
+    /// Imports from `// import:` comments
+    pub imports: Vec<ImportDef>,
 }
 
 /// Extract metadata from a Hudl template's content
@@ -60,6 +79,8 @@ pub fn extract_metadata(content: &str) -> ViewMetadata {
     // Extract name and data type from comments
     let name_re = Regex::new(r"//\s*name:\s*(\w+)").unwrap();
     let data_re = Regex::new(r"//\s*data:\s*([\w.]+)").unwrap();
+    let param_re = Regex::new(r"//\s*param:\s*(\w+)\s+([\w./]+)").unwrap();
+    let import_re = Regex::new(r"//\s*import:\s*(\w+)\s+(\S+)").unwrap();
 
     for line in content.lines() {
         if let Some(caps) = name_re.captures(line) {
@@ -68,12 +89,32 @@ pub fn extract_metadata(content: &str) -> ViewMetadata {
         if let Some(caps) = data_re.captures(line) {
             metadata.data_type = Some(caps[1].to_string());
         }
+        if let Some(caps) = param_re.captures(line) {
+            let type_path = caps[2].to_string();
+            let package = type_path.rfind('.').map(|i| type_path[..i].to_string());
+            metadata.params.push(ParamDef {
+                name: caps[1].to_string(),
+                type_path,
+                package,
+            });
+        }
+        if let Some(caps) = import_re.captures(line) {
+            metadata.imports.push(ImportDef {
+                alias: caps[1].to_string(),
+                path: caps[2].to_string(),
+            });
+        }
     }
 
     // Extract proto blocks
     extract_proto_blocks(content, &mut metadata);
 
     metadata
+}
+
+/// Get the fully qualified type for a param definition
+pub fn qualified_type(param: &ParamDef) -> String {
+    param.type_path.clone()
 }
 
 /// Extract proto blocks from `/**` comments

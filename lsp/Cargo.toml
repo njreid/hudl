@@ -1,7 +1,11 @@
 [package]
 name = "hudl-lsp"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[[bin]]
+name = "hudl-lsp"
+path = "src/main.rs"
 
 [dependencies]
 hudlc = { version = "0.1.0", path = ".." }
@@ -10,5 +14,9 @@ lsp-types = "0.97.0"
 tokio = { version = "1.49.0", features = ["full", "process", "io-util"] }
 tower-lsp = "0.20.0"
 regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

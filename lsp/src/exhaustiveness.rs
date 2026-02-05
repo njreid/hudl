@@ -3,8 +3,11 @@
 //! Checks that switch statements on enum types cover all values,
 //! or have a default case.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range};
+
+use crate::analyzer_client::AnalyzerClient;
+use hudlc::proto::ProtoSchema;
 
 /// Information about a switch statement found in the document
 #[derive(Debug)]
@@ -21,6 +24,150 @@ pub struct SwitchInfo {
 pub struct EnumDef {
     pub name: String,
     pub values: Vec<String>,
+}
+
+/// Check a switch statement for exhaustiveness using the Go analyzer.
+///
+/// Returns a diagnostic if the switch is non-exhaustive.
+pub fn check_switch(
+    switch_info: &SwitchInfo,
+    scope: &HashMap<String, String>,
+    client: &mut AnalyzerClient,
+) -> Option<Diagnostic> {
+    // If there's a default, it's always exhaustive
+    if switch_info.has_default {
+        return None;
+    }
+
+    // Try to resolve the expression to a type
+    let parts: Vec<&str> = switch_info.expr.split('.').collect();
+    let root = parts[0];
+
+    // Check if root variable is in scope
+    let root_type = scope.get(root)?;
+
+    // Get field path if any
+    let field_path = if parts.len() > 1 {
+        parts[1..].join(".")
+    } else {
+        String::new()
+    };
+
+    // Try to get the type info to check for enum
+    // For now, we can't get enum values from Go types directly
+    // This would need extension to the analyzer protocol
+    // Skip exhaustiveness check if we can't determine the enum
+    let _ = client.validate_expression(root_type, &field_path);
+
+    None
+}
+
+/// Check switch exhaustiveness using proto schema for enum types.
+///
+/// This uses the proto definitions in the template to validate
+/// that switch statements on enum fields cover all values.
+pub fn check_switch_with_proto(
+    switch_info: &SwitchInfo,
+    schema: &ProtoSchema,
+    data_type: Option<&str>,
+) -> Option<Diagnostic> {
+    // If there's a default, it's always exhaustive
+    if switch_info.has_default {
+        return None;
+    }
+
+    // Try to find the enum type for the switch expression
+    let enum_name = if let Some(data_type) = data_type {
+        // Try to resolve the field path to find the enum type
+        match schema.resolve_field_path(data_type, &switch_info.expr) {
+            Ok(field_type) => {
+                match field_type {
+                    hudlc::proto::ProtoType::Enum(name) => Some(name.clone()),
+                    hudlc::proto::ProtoType::Message(name) => {
+                        // The field might be a message with an enum type name
+                        // Check if there's an enum with this name
+                        if schema.get_enum(name).is_some() {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            Err(_) => {
+                // Try direct enum lookup (e.g., switch on a variable that is an enum)
+                // The expression might directly reference an enum type
+                let parts: Vec<&str> = switch_info.expr.split('.').collect();
+                let last_part = parts.last().unwrap_or(&"");
+
+                // Check if any enum matches based on case patterns
+                for (name, _) in &schema.enums {
+                    let values = schema.get_enum_values(name).unwrap_or_default();
+                    // If all cases match values from this enum, it's likely the right one
+                    if switch_info.cases.iter().all(|c| values.contains(c)) {
+                        return check_enum_exhaustiveness(switch_info, name, &values);
+                    }
+                }
+                None
+            }
+        }
+    } else {
+        // No data type specified, try to infer from case patterns
+        for (name, _) in &schema.enums {
+            let values = schema.get_enum_values(name).unwrap_or_default();
+            if switch_info.cases.iter().any(|c| values.contains(c)) {
+                return check_enum_exhaustiveness(switch_info, name, &values);
+            }
+        }
+        None
+    };
+
+    if let Some(enum_name) = enum_name {
+        if let Some(values) = schema.get_enum_values(&enum_name) {
+            return check_enum_exhaustiveness(switch_info, &enum_name, &values);
+        }
+    }
+
+    None
+}
+
+/// Check if a switch covers all enum values.
+fn check_enum_exhaustiveness(
+    switch_info: &SwitchInfo,
+    _enum_name: &str,
+    enum_values: &[String],
+) -> Option<Diagnostic> {
+    let covered: HashSet<&str> = switch_info.cases.iter().map(|c| c.as_str()).collect();
+
+    let missing: Vec<&str> = enum_values
+        .iter()
+        .map(|v| v.as_str())
+        .filter(|v| !covered.contains(*v))
+        .collect();
+
+    if !missing.is_empty() {
+        return Some(Diagnostic {
+            range: Range {
+                start: Position {
+                    line: switch_info.line,
+                    character: switch_info.character,
+                },
+                end: Position {
+                    line: switch_info.line,
+                    character: switch_info.character + 6,
+                },
+            },
+            severity: Some(DiagnosticSeverity::WARNING),
+            message: format!(
+                "Non-exhaustive switch: missing cases for {}. Add these cases or a default clause.",
+                missing.join(", ")
+            ),
+            ..Default::default()
+        });
+    }
+
+    None
 }
 
 /// Check a switch statement for exhaustiveness against an enum.

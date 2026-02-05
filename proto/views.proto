@@ -1,0 +1,81 @@
+// Proto definitions for Hudl view data types.
+// Generated from template proto blocks.
+//
+// To regenerate Go bindings:
+//   protoc --go_out=. --go_opt=paths=source_relative proto/views.proto
+
+syntax = "proto3";
+
+package hudl;
+
+option go_package = "github.com/njr/hudl/pkg/hudl/pb";
+
+// SimpleData is the data type for the Simple view.
+message SimpleData {
+    string title = 1;
+    string description = 2;
+    repeated string features = 3;
+}
+
+// LayoutData is the data type for the AppLayout view.
+message LayoutData {
+    string title = 1;
+    string user_name = 2;
+    bool is_logged_in = 3;
+    string content = 4;  // Pre-rendered HTML from child component
+}
+
+// RegistrationFormData is the data type for the RegistrationForm view.
+message RegistrationFormData {
+    string username = 1;
+    string email = 2;
+    bool terms_accepted = 3;
+    string csrf_token = 4;
+    string username_error = 5;
+    string email_error = 6;
+    string password_error = 7;
+}
+
+// Feature represents a single feature item.
+message Feature {
+    string icon = 1;
+    string title = 2;
+    string description = 3;
+    string link_url = 4;
+}
+
+// FeatureListData is the data type for the FeatureList view.
+message FeatureListData {
+    repeated Feature features = 1;
+}
+
+// TransactionStatus represents the status of a transaction.
+enum TransactionStatus {
+    STATUS_UNKNOWN = 0;
+    STATUS_ACTIVE = 1;
+    STATUS_PENDING = 2;
+    STATUS_FAILED = 3;
+}
+
+// Transaction represents a single transaction.
+message Transaction {
+    string id = 1;
+    string customer_name = 2;
+    string customer_email = 3;
+    string amount_formatted = 4;
+    TransactionStatus status = 5;
+}
+
+// DashboardData is the data type for the Dashboard view.
+message DashboardData {
+    string revenue_formatted = 1;
+    int32 active_users = 2;
+    int32 system_load = 3;
+    repeated Transaction transactions = 4;
+}
+
+// ButtonData is the data type for the StyledButton view.
+message ButtonData {
+    string label = 1;
+    bool disabled = 2;
+}

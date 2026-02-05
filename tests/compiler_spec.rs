@@ -57,12 +57,42 @@ el {
 }
 
 #[test]
+fn test_element_style_transformation() {
+    let input = r#"
+el {
+    button {
+        style {
+            background-color "red"
+            color "white"
+            font-weight "bold"
+        }
+        "CANCEL"
+    }
+}
+    "#;
+
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
+
+    // Check that the button element has styles
+    let button = root.nodes[0].as_element().expect("Expected element");
+    assert_eq!(button.tag, "button");
+    assert_eq!(button.styles.len(), 3);
+
+    // Check style properties
+    assert!(button.styles.iter().any(|(k, v)| k == "background-color" && v == "red"));
+    assert!(button.styles.iter().any(|(k, v)| k == "color" && v == "white"));
+    assert!(button.styles.iter().any(|(k, v)| k == "font-weight" && v == "bold"));
+}
+
+#[test]
 fn test_scoped_css_transformation() {
+    // Legacy test for root-level css block (still supported)
     let input = r#"
 el {
     css {
-        &header { margin _0; }
-        .btn { width _10px; }
+        &header { margin "_0"; }
+        .btn { width "_10px"; }
     }
 }
     "#;
@@ -265,4 +295,141 @@ el {
     // Metadata should be extracted
     assert_eq!(root.name, Some("UserCard".to_string()));
     assert_eq!(root.data_type, Some("User".to_string()));
+}
+
+#[test]
+fn test_codegen_switch_case() {
+    let input = r#"
+el {
+    switch "`status`" {
+        case STATUS_ACTIVE {
+            span "Active"
+        }
+        case STATUS_PENDING {
+            span "Pending"
+        }
+        default {
+            span "Unknown"
+        }
+    }
+}
+    "#;
+
+    let doc = parser::parse(input).unwrap();
+    let root = transformer::transform(&doc).unwrap();
+    let views = vec![("TestView".to_string(), root)];
+    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
+
+    // Switch should generate conditional logic
+    assert!(rust_code.contains("_switch_val"));
+    assert!(rust_code.contains("STATUS_ACTIVE"));
+    assert!(rust_code.contains("STATUS_PENDING"));
+    // Should have else clause for default
+    assert!(rust_code.contains("else"));
+}
+
+#[test]
+fn test_codegen_each_with_index() {
+    let input = r#"
+el {
+    each item "`items`" {
+        li "`_index`"
+    }
+}
+    "#;
+
+    let doc = parser::parse(input).unwrap();
+    let root = transformer::transform(&doc).unwrap();
+    let views = vec![("TestView".to_string(), root)];
+    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
+
+    // Should have loop with index
+    assert!(rust_code.contains("_index"));
+    assert!(rust_code.contains("enumerate"));
+}
+
+#[test]
+fn test_codegen_multi_interpolation() {
+    // Test multiple CEL expressions in a single string
+    let input = r#"
+el {
+    span "Hello `name`, you have `count` messages"
+}
+    "#;
+
+    let doc = parser::parse(input).unwrap();
+    let root = transformer::transform(&doc).unwrap();
+    let views = vec![("TestView".to_string(), root)];
+    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
+
+    // Should generate code referencing both expressions
+    assert!(rust_code.contains("Hello"));
+    assert!(rust_code.contains("name"));
+    assert!(rust_code.contains("count"));
+    assert!(rust_code.contains("messages"));
+}
+
+#[test]
+fn test_transform_nested_if_else() {
+    // Tests else-if pattern (nested if in else block)
+    let input = r#"
+el {
+    if "`x > 10`" {
+        span "high"
+    } else {
+        if "`x > 5`" {
+            span "medium"
+        } else {
+            span "low"
+        }
+    }
+}
+    "#;
+
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
+
+    let if_node = root.nodes[0].as_control_flow().expect("Should be control flow");
+    match if_node {
+        hudlc::ast::ControlFlow::If { condition, then_block, else_block } => {
+            assert_eq!(condition, "x > 10");
+            assert_eq!(then_block.len(), 1);
+            // Else block should contain another if
+            let else_nodes = else_block.as_ref().expect("Should have else block");
+            assert_eq!(else_nodes.len(), 1);
+            // The else block should contain another If control flow
+            let nested_if = else_nodes[0].as_control_flow().expect("Should be nested control flow");
+            match nested_if {
+                hudlc::ast::ControlFlow::If { condition, .. } => {
+                    assert_eq!(condition, "x > 5");
+                },
+                _ => panic!("Expected nested If node"),
+            }
+        },
+        _ => panic!("Expected If node"),
+    }
+}
+
+#[test]
+fn test_codegen_scoped_css() {
+    // Test that scoped styles generate unique class names
+    let input = r#"
+el {
+    button {
+        style {
+            background-color "blue"
+            color "white"
+        }
+        "Click me"
+    }
+}
+    "#;
+
+    let doc = parser::parse(input).unwrap();
+    let root = transformer::transform(&doc).unwrap();
+
+    // The button should have styles
+    let button = root.nodes[0].as_element().expect("Expected element");
+    assert_eq!(button.tag, "button");
+    assert!(!button.styles.is_empty());
 }

@@ -118,7 +118,7 @@ impl EvalContext {
     }
 
     /// Convert to cel-interpreter Context.
-    fn to_cel_context(&self) -> Context {
+    fn to_cel_context(&self) -> Context<'_> {
         let mut ctx = Context::default();
         for (name, value) in &self.variables {
             ctx.add_variable(name, value.clone()).ok();
@@ -127,38 +127,6 @@ impl EvalContext {
     }
 }
 
-/// Convert CBOR Value to CEL Value.
-pub fn cbor_to_cel(cbor: &serde_cbor::Value) -> CelValue {
-    match cbor {
-        serde_cbor::Value::Null => CelValue::Null,
-        serde_cbor::Value::Bool(b) => CelValue::Bool(*b),
-        serde_cbor::Value::Integer(i) => CelValue::Int(*i as i64),
-        serde_cbor::Value::Float(f) => CelValue::Float(*f),
-        serde_cbor::Value::Text(s) => CelValue::String(Arc::new(s.clone())),
-        serde_cbor::Value::Bytes(b) => {
-            // Convert bytes to list of ints
-            CelValue::List(Arc::new(b.iter().map(|byte| CelValue::Int(*byte as i64)).collect()))
-        }
-        serde_cbor::Value::Array(arr) => {
-            CelValue::List(Arc::new(arr.iter().map(cbor_to_cel).collect()))
-        }
-        serde_cbor::Value::Map(map) => {
-            let cel_map: HashMap<Key, CelValue> = map
-                .iter()
-                .filter_map(|(k, v)| {
-                    // CEL maps use Key type (string keys are most common)
-                    if let serde_cbor::Value::Text(key) = k {
-                        Some((Key::String(Arc::new(key.clone())), cbor_to_cel(v)))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            CelValue::Map(CelMap { map: Arc::new(cel_map) })
-        }
-        _ => CelValue::Null,
-    }
-}
 
 /// Convert CEL Value to string for HTML output.
 pub fn cel_to_string(value: &CelValue) -> String {

@@ -1,6 +1,6 @@
 use kdl::{KdlDocument, KdlNode};
 use regex::Regex;
-use crate::ast::{ControlFlow, SwitchCase, Root, Node, Element, Text};
+use crate::ast::{ControlFlow, SwitchCase, Root, Node, Element, Text, DatastarAttr};
 use std::collections::HashMap;
 
 pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
@@ -47,6 +47,48 @@ pub fn transform_with_metadata(doc: &KdlDocument, raw_content: &str) -> Result<R
     Ok(root)
 }
 
+/// Process a style block inside an element
+/// Returns Vec<(property, value)> for the element's styles
+fn process_element_style(node: &KdlNode) -> Result<Vec<(String, String)>, String> {
+    let mut styles = Vec::new();
+
+    if let Some(children) = node.children() {
+        for prop in children.nodes() {
+            let prop_name = prop.name().value();
+
+            // Get the value - can be a string argument or identifier
+            let val = prop.entries().get(0)
+                .map(|e| {
+                    if let Some(s) = e.value().as_string() {
+                        s.to_string()
+                    } else if let Some(b) = e.value().as_bool() {
+                        b.to_string()
+                    } else if let Some(i) = e.value().as_integer() {
+                        i.to_string()
+                    } else if let Some(f) = e.value().as_float() {
+                        f.to_string()
+                    } else {
+                        String::new()
+                    }
+                })
+                .unwrap_or_default();
+
+            // Handle numeric values with _ prefix (for KDL compatibility)
+            let clean_val = if val.starts_with('_') {
+                val[1..].to_string()
+            } else {
+                val
+            };
+
+            if !prop_name.is_empty() && !clean_val.is_empty() {
+                styles.push((prop_name.to_string(), clean_val));
+            }
+        }
+    }
+
+    Ok(styles)
+}
+
 fn process_css(node: &KdlNode) -> Result<String, String> {
     let mut css_output = String::new();
     if let Some(children) = node.children() {
@@ -58,10 +100,10 @@ fn process_css(node: &KdlNode) -> Result<String, String> {
             } else {
                 selector_raw.to_string()
             };
-            
+
             css_output.push_str(&selector);
             css_output.push_str(" { ");
-            
+
             for _entry in rule.entries() {
                 // Property name is usually the entry name?
                 // Wait, KDL: `margin _0;` -> node `margin` with arg `_0`.
@@ -70,25 +112,25 @@ fn process_css(node: &KdlNode) -> Result<String, String> {
                 // `rule` is `&header`.
                 // `rule` children are the properties?
             }
-            
+
             if let Some(props) = rule.children() {
                 for prop in props.nodes() {
                     let prop_name = prop.name().value();
                     let val = prop.entries().get(0)
                         .and_then(|e| e.value().as_string())
                         .unwrap_or("");
-                    
+
                     // Handle numeric values with _ prefix
                     let clean_val = if val.starts_with('_') {
                         &val[1..]
                     } else {
                         val
                     };
-                    
+
                     css_output.push_str(&format!("{}: {}; ", prop_name, clean_val));
                 }
             }
-            
+
             css_output.push_str("}\n");
         }
     }
@@ -285,22 +327,30 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
 
 fn transform_node(node: &KdlNode) -> Result<Node, String> {
     let name = node.name().value();
-    
+
     let (tag, mut id, mut classes) = parse_selector(name);
-    
+
     let mut attributes = HashMap::new();
     let mut children = Vec::new();
+    let mut styles = Vec::new();
+    let mut datastar = Vec::new();
 
     // 1. Process entries (Properties and Arguments)
     for entry in node.entries() {
         if let Some(prop_name) = entry.name() {
             let key = prop_name.value();
             let val = entry.value().as_string().unwrap_or_default().to_string();
-            
-            match key {
-                "id" => id = Some(val),
-                "class" => classes.extend(val.split_whitespace().map(|s| s.to_string())),
-                _ => { attributes.insert(key.to_string(), val); }
+
+            // Check for inline tilde attributes: ~on:click="expr"
+            if key.starts_with('~') {
+                let attr = parse_inline_tilde_attr(&key[1..], &val);
+                datastar.push(attr);
+            } else {
+                match key {
+                    "id" => id = Some(val),
+                    "class" => classes.extend(val.split_whitespace().map(|s| s.to_string())),
+                    _ => { attributes.insert(key.to_string(), val); }
+                }
             }
         } else {
             // Positional argument -> Text content
@@ -310,9 +360,25 @@ fn transform_node(node: &KdlNode) -> Result<Node, String> {
         }
     }
 
-    // 2. Process children
+    // 2. Process children, extracting style blocks and tilde blocks
     if let Some(child_block) = node.children() {
-        children.append(&mut transform_block(child_block.nodes())?);
+        let mut non_special_nodes = Vec::new();
+        for child in child_block.nodes() {
+            match child.name().value() {
+                "style" => {
+                    // Extract styles from this block
+                    styles.append(&mut process_element_style(child)?);
+                }
+                "~" => {
+                    // Tilde block - extract datastar attributes
+                    datastar.append(&mut process_tilde_block(child)?);
+                }
+                _ => {
+                    non_special_nodes.push(child.clone());
+                }
+            }
+        }
+        children.append(&mut transform_block(&non_special_nodes)?);
     }
 
     Ok(Node::Element(Element {
@@ -321,5 +387,66 @@ fn transform_node(node: &KdlNode) -> Result<Node, String> {
         classes,
         attributes,
         children,
+        styles,
+        datastar,
     }))
+}
+
+/// Parse an inline tilde attribute like "on:click~once~prevent" with value "expr"
+fn parse_inline_tilde_attr(name_with_mods: &str, value: &str) -> DatastarAttr {
+    let (name, modifiers) = parse_attr_name_and_modifiers(name_with_mods);
+    DatastarAttr {
+        name,
+        value: if value.is_empty() { None } else { Some(value.to_string()) },
+        modifiers,
+    }
+}
+
+/// Parse attribute name and modifiers from "on:click~once~prevent"
+/// Returns (name, vec!["once", "prevent"])
+fn parse_attr_name_and_modifiers(input: &str) -> (String, Vec<String>) {
+    let parts: Vec<&str> = input.split('~').collect();
+    let name = parts[0].to_string();
+    let modifiers = parts[1..].iter().map(|s| s.to_string()).collect();
+    (name, modifiers)
+}
+
+/// Process a tilde block: ~ { on:click "expr"; show $visible; .active $cond }
+fn process_tilde_block(node: &KdlNode) -> Result<Vec<DatastarAttr>, String> {
+    let mut attrs = Vec::new();
+
+    if let Some(children) = node.children() {
+        for child in children.nodes() {
+            let name_raw = child.name().value();
+            let (name, modifiers) = parse_attr_name_and_modifiers(name_raw);
+
+            // Get the value (first positional argument) - handle all types
+            let value = child.entries().iter()
+                .filter(|e| e.name().is_none())
+                .next()
+                .map(|e| {
+                    let v = e.value();
+                    if let Some(s) = v.as_string() {
+                        s.to_string()
+                    } else if let Some(i) = v.as_integer() {
+                        i.to_string()
+                    } else if let Some(f) = v.as_float() {
+                        f.to_string()
+                    } else if let Some(b) = v.as_bool() {
+                        b.to_string()
+                    } else {
+                        // Null or unknown
+                        "null".to_string()
+                    }
+                });
+
+            attrs.push(DatastarAttr {
+                name,
+                value,
+                modifiers,
+            });
+        }
+    }
+
+    Ok(attrs)
 }

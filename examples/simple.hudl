@@ -1,22 +1,21 @@
 /**
 message SimpleData {
-    string title = 1;
-    string description = 2;
-    repeated string features = 3;
+  string title = 1;
+  string description = 2;
+  repeated string features = 3;
 }
 */
 
 // name: Simple
 // data: SimpleData
-
 el {
-    div#root.container {
-        h1 `title`
-        p `description`
-        ul {
-            each feat `features` {
-                li `feat`
-            }
-        }
+  div#root.container {
+    h1 `title`
+    p `description`
+    ul {
+      each feat `features` {
+        li `feat`
+      }
     }
+  }
 }

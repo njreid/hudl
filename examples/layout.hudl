@@ -33,9 +33,7 @@ el {
                         }
                     }
                 }
-                main.flex-grow.container.mx-auto.px-4.py-8 {
-                    `raw(content)`
-                }
+                main.flex-grow.container.mx-auto.px-4.py-8 "`raw(content)`"
                 footer.border-t.border-slate-800.py-6.mt-auto {
                     .container.mx-auto.text-center.text-slate-500 {
                         p "Built with HUDL & Go"

@@ -22,6 +22,23 @@ pub struct Element {
     pub classes: Vec<String>,
     pub attributes: HashMap<String, String>,
     pub children: Vec<Node>,
+    /// Scoped styles for this element: Vec<(property, value)>
+    pub styles: Vec<(String, String)>,
+    /// Datastar reactive attributes from tilde blocks/inline
+    /// Key is the Hudl attribute name (e.g., "on:click", ".active", "let:count")
+    /// Value is (expression, modifiers) where modifiers is a list like ["once", "prevent"]
+    pub datastar: Vec<DatastarAttr>,
+}
+
+/// A Datastar reactive attribute
+#[derive(Debug, PartialEq, Clone)]
+pub struct DatastarAttr {
+    /// The attribute type/name (e.g., "on:click", "show", "let:count", ".active")
+    pub name: String,
+    /// The expression value (e.g., "$count++", "$isVisible")
+    pub value: Option<String>,
+    /// Modifiers (e.g., ["once", "prevent"], ["debounce:300ms"])
+    pub modifiers: Vec<String>,
 }
 
 #[derive(Debug, PartialEq)]

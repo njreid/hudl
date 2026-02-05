@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"google.golang.org/protobuf/proto"
 )
 
 type Runtime struct {
@@ -51,23 +51,25 @@ func (r *Runtime) Close() error {
 	return r.rt.Close(r.ctx)
 }
 
-func (r *Runtime) Render(viewName string, data any) (string, error) {
+// Render renders a view with the given proto message data.
+// The data must be a proto.Message that matches the view's expected data type.
+func (r *Runtime) Render(viewName string, data proto.Message) (string, error) {
 	renderFunc := r.mod.ExportedFunction(viewName)
 	if renderFunc == nil {
 		return "", fmt.Errorf("view function %s not found", viewName)
 	}
 
-	// 1. Serialize data to CBOR
+	// 1. Serialize data to proto wire format
 	var params []byte
 	if data != nil {
 		var err error
-		params, err = cbor.Marshal(data)
+		params, err = proto.Marshal(data)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal data to CBOR: %w", err)
+			return "", fmt.Errorf("failed to marshal data to proto: %w", err)
 		}
 	}
 
-	// 2. Allocate memory for input params (CBOR)
+	// 2. Allocate memory for input params (proto wire format)
 	paramPtr := uint64(0)
 	if len(params) > 0 {
 		results, err := r.malloc.Call(r.ctx, uint64(len(params)))
@@ -98,6 +100,50 @@ func (r *Runtime) Render(viewName string, data any) (string, error) {
 	}
 
 	// 5. Free the string memory in WASM
+	defer r.free.Call(r.ctx, uint64(ptr), uint64(size))
+
+	return string(outBytes), nil
+}
+
+// RenderBytes renders a view with raw proto wire format bytes.
+// Use this when you already have serialized proto data.
+func (r *Runtime) RenderBytes(viewName string, protoBytes []byte) (string, error) {
+	renderFunc := r.mod.ExportedFunction(viewName)
+	if renderFunc == nil {
+		return "", fmt.Errorf("view function %s not found", viewName)
+	}
+
+	// Allocate memory for input params
+	paramPtr := uint64(0)
+	if len(protoBytes) > 0 {
+		results, err := r.malloc.Call(r.ctx, uint64(len(protoBytes)))
+		if err != nil {
+			return "", fmt.Errorf("malloc failed: %w", err)
+		}
+		paramPtr = results[0]
+		if !r.mod.Memory().Write(uint32(paramPtr), protoBytes) {
+			return "", fmt.Errorf("failed to write params to memory")
+		}
+		defer r.free.Call(r.ctx, paramPtr, uint64(len(protoBytes)))
+	}
+
+	// Call the view function
+	results, err := renderFunc.Call(r.ctx, paramPtr, uint64(len(protoBytes)))
+	if err != nil {
+		return "", fmt.Errorf("render failed: %w", err)
+	}
+
+	packed := results[0]
+	ptr := uint32(packed >> 32)
+	size := uint32(packed)
+
+	// Read the result string from memory
+	outBytes, ok := r.mod.Memory().Read(ptr, size)
+	if !ok {
+		return "", fmt.Errorf("failed to read result from memory at %d (size %d)", ptr, size)
+	}
+
+	// Free the string memory in WASM
 	defer r.free.Call(r.ctx, uint64(ptr), uint64(size))
 
 	return string(outBytes), nil

@@ -24,82 +24,76 @@ message DashboardData {
 
 // name: Dashboard
 // data: DashboardData
-
 el {
-    &dashboard-view {
-        h1.text-3xl.font-bold.mb-6 "Overview"
-
-        .grid.grid-cols-1.md:grid-cols-3.gap-6.mb-8 {
-            // Revenue Card
-            .stat-card.bg-slate-800.p-6.rounded-lg {
-                h3.text-slate-400.text-sm.uppercase "Total Revenue"
-                p.text-3xl.font-mono.mt-2 `revenue_formatted`
-            }
-
-            // Active Users Card
-            .stat-card.bg-slate-800.p-6.rounded-lg {
-                h3.text-slate-400.text-sm.uppercase "Active Users"
-                p.text-3xl.font-mono.mt-2 `string(active_users)`
-            }
-
-            // System Load Card
-            .stat-card.bg-slate-800.p-6.rounded-lg {
-                h3.text-slate-400.text-sm.uppercase "System Load"
-                if `system_load >= 80` {
-                    p.text-3xl.font-mono.mt-2.text-red-400 "`string(system_load)`%"
-                }
-                else {
-                    if `system_load >= 50` {
-                        p.text-3xl.font-mono.mt-2.text-yellow-400 "`string(system_load)`%"
-                    }
-                    else {
-                        p.text-3xl.font-mono.mt-2.text-green-400 "`string(system_load)`%"
-                    }
-                }
-            }
+  &dashboard-view {
+    h1.text-3xl.font-bold.mb-6 "Overview"
+    .grid.grid-cols-1.md:grid-cols-3.gap-6.mb-8 {
+      // Revenue Card
+      .stat-card.bg-slate-800.p-6.rounded-lg {
+        h3.text-slate-400.text-sm.uppercase "Total Revenue"
+        p.text-3xl.font-mono.mt-2 `revenue_formatted`
+      }
+      // Active Users Card
+      .stat-card.bg-slate-800.p-6.rounded-lg {
+        h3.text-slate-400.text-sm.uppercase "Active Users"
+        p.text-3xl.font-mono.mt-2 `string(active_users)`
+      }
+      // System Load Card
+      .stat-card.bg-slate-800.p-6.rounded-lg {
+        h3.text-slate-400.text-sm.uppercase "System Load"
+        if `system_load >= 80` {
+          p.text-3xl.font-mono.mt-2.text-red-400 "`string(system_load)`%"
         }
-
-        h2.text-xl.font-semibold.mb-4 "Recent Transactions"
-
-        .overflow-x-auto.rounded-lg.border.border-slate-700 {
-            table.w-full.text-left.text-sm {
-                thead.bg-slate-900.text-slate-400.uppercase {
-                    tr {
-                        th.px-6.py-3 "ID"
-                        th.px-6.py-3 "Customer"
-                        th.px-6.py-3 "Amount"
-                        th.px-6.py-3 "Status"
-                    }
-                }
-                tbody.divide-y.divide-slate-800.bg-slate-800 {
-                    each tx `transactions` {
-                        tr.hover:bg-slate-700 {
-                            td.px-6.py-4.font-mono.text-slate-500 `tx.id`
-                            td.px-6.py-4 {
-                                div.font-medium `tx.customer_name`
-                                div.text-xs.text-slate-500 `tx.customer_email`
-                            }
-                            td.px-6.py-4 `tx.amount_formatted`
-                            td.px-6.py-4 {
-                                switch `tx.status` {
-                                    case STATUS_ACTIVE {
-                                        span.badge.bg-green-500.text-green-950.px-2.py-1.rounded "Active"
-                                    }
-                                    case STATUS_PENDING {
-                                        span.badge.bg-yellow-500.text-yellow-950.px-2.py-1.rounded "Pending"
-                                    }
-                                    case STATUS_FAILED {
-                                        span.badge.bg-red-500.text-white.px-2.py-1.rounded "Failed"
-                                    }
-                                    default {
-                                        span.badge.bg-slate-500.text-white.px-2.py-1.rounded "Unknown"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        else {
+          if `system_load >= 50` {
+            p.text-3xl.font-mono.mt-2.text-yellow-400 "`string(system_load)`%"
+          }
+          else {
+            p.text-3xl.font-mono.mt-2.text-green-400 "`string(system_load)`%"
+          }
         }
+      }
     }
+    h2.text-xl.font-semibold.mb-4 "Recent Transactions"
+    .overflow-x-auto.rounded-lg.border.border-slate-700 {
+      table.w-full.text-left.text-sm {
+        thead.bg-slate-900.text-slate-400.uppercase {
+          tr {
+            th.px-6.py-3 "ID"
+            th.px-6.py-3 "Customer"
+            th.px-6.py-3 "Amount"
+            th.px-6.py-3 "Status"
+          }
+        }
+        tbody.divide-y.divide-slate-800.bg-slate-800 {
+          each tx `transactions` {
+            tr.hover:bg-slate-700 {
+              td.px-6.py-4.font-mono.text-slate-500 `tx.id`
+              td.px-6.py-4 {
+                div.font-medium `tx.customer_name`
+                div.text-xs.text-slate-500 `tx.customer_email`
+              }
+              td.px-6.py-4 `tx.amount_formatted`
+              td.px-6.py-4 {
+                switch tx.status {
+                  case "STATUS_ACTIVE" {
+                    span.badge.bg-green-500.text-green-950.px-2.py-1.rounded "Active"
+                  }
+                  case "STATUS_PENDING" {
+                    span.badge.bg-yellow-500.text-yellow-950.px-2.py-1.rounded "Pending"
+                  }
+                  case "STATUS_FAILED" {
+                    span.badge.bg-red-500.text-white.px-2.py-1.rounded "Failed"
+                  }
+                  default {
+                    span.badge.bg-slate-500.text-white.px-2.py-1.rounded "Unknown"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
