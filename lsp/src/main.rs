@@ -8,9 +8,11 @@ use regex::Regex;
 mod analyzer_client;
 mod exhaustiveness;
 mod param;
+mod scope;
 
 use analyzer_client::AnalyzerClient;
 use param::ViewMetadata;
+use scope::Scope;
 
 struct Backend {
     client: Client,
@@ -50,34 +52,34 @@ impl Backend {
             return;
         }
 
-        // 2. Type validation (if analyzer is available)
+        // 2. Type validation
         let metadata = param::extract_metadata(content);
 
-        // Build scope from params
-        let scope = self.build_scope(&metadata);
+        // Parse proto schema from template
+        let schema = hudlc::proto::ProtoSchema::from_template(content).unwrap_or_default();
+
+        // Build scopes with proper variable tracking
+        let line_scopes = scope::build_scopes_from_content(
+            content,
+            &schema,
+            metadata.data_type.as_deref(),
+        );
 
         // Pre-load packages for all params
         self.preload_packages(&metadata).await;
 
         // Find all expressions in backticks and validate them
-        let expr_diagnostics = self.validate_expressions(content, &scope).await;
+        let expr_diagnostics = self.validate_expressions(content, &line_scopes, &schema).await;
         diagnostics.extend(expr_diagnostics);
 
-        // Check switch exhaustiveness
-        let switch_diagnostics = self.check_switch_exhaustiveness(content, &scope).await;
+        // Check switch exhaustiveness (use root scope for now)
+        let root_scope = scope::build_root_scope(&schema, metadata.data_type.as_deref());
+        let switch_diagnostics = self.check_switch_exhaustiveness(content, &root_scope, &schema).await;
         diagnostics.extend(switch_diagnostics);
 
         self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
     }
 
-    fn build_scope(&self, metadata: &ViewMetadata) -> HashMap<String, String> {
-        let mut scope = HashMap::new();
-        for p in &metadata.params {
-            let qualified = param::qualified_type(p);
-            scope.insert(p.name.clone(), qualified);
-        }
-        scope
-    }
 
     async fn preload_packages(&self, metadata: &ViewMetadata) {
         let mut analyzer = self.analyzer.lock().unwrap();
@@ -91,12 +93,16 @@ impl Backend {
     async fn validate_expressions(
         &self,
         content: &str,
-        scope: &HashMap<String, String>,
+        line_scopes: &HashMap<u32, Scope>,
+        schema: &hudlc::proto::ProtoSchema,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
         let backtick_re = Regex::new(r"`([^`]+)`").unwrap();
 
         for (line_num, line) in content.lines().enumerate() {
+            // Get the scope for this line
+            let line_scope = scope::get_scope_for_line(line_scopes, line_num as u32);
+
             for cap in backtick_re.captures_iter(line) {
                 let expr_str = &cap[1];
                 let match_start = cap.get(1).unwrap().start();
@@ -105,7 +111,7 @@ impl Backend {
                 match hudlc::expr::parse(expr_str) {
                     Ok(expr) => {
                         // Validate against scope
-                        if let Some(diag) = self.validate_expr(&expr, scope, line_num as u32, match_start as u32) {
+                        if let Some(diag) = self.validate_expr(&expr, &line_scope, schema, line_num as u32, match_start as u32) {
                             diagnostics.push(diag);
                         }
                     }
@@ -130,7 +136,8 @@ impl Backend {
     fn validate_expr(
         &self,
         expr: &hudlc::expr::Expr,
-        scope: &HashMap<String, String>,
+        scope: &Scope,
+        schema: &hudlc::proto::ProtoSchema,
         line: u32,
         col: u32,
     ) -> Option<Diagnostic> {
@@ -140,29 +147,23 @@ impl Backend {
                 let root = parts[0];
 
                 // Check if root variable is in scope
-                if let Some(root_type) = scope.get(root) {
-                    // Validate field path via Go analyzer
+                if let Some(var_info) = scope.lookup(root) {
+                    // Validate field path using proto schema
                     if parts.len() > 1 {
                         let field_path = parts[1..].join(".");
-                        let mut analyzer = self.analyzer.lock().unwrap();
-                        if let Some(ref mut client) = *analyzer {
-                            match client.validate_expression(root_type, &field_path) {
-                                Ok(result) if !result.valid => {
-                                    return Some(Diagnostic {
-                                        range: Range {
-                                            start: Position { line, character: col },
-                                            end: Position { line, character: col + path.len() as u32 },
-                                        },
-                                        severity: Some(DiagnosticSeverity::ERROR),
-                                        message: result.error.unwrap_or_else(|| "Invalid field access".to_string()),
-                                        ..Default::default()
-                                    });
-                                }
-                                Err(e) => {
-                                    // Log but don't show to user (analyzer issue)
-                                    eprintln!("Analyzer error: {}", e);
-                                }
-                                _ => {}
+
+                        // Get the message name from the variable's type
+                        if let hudlc::proto::ProtoType::Message(msg_name) = &var_info.proto_type {
+                            if let Err(e) = schema.resolve_field_path(msg_name, &field_path) {
+                                return Some(Diagnostic {
+                                    range: Range {
+                                        start: Position { line, character: col },
+                                        end: Position { line, character: col + path.len() as u32 },
+                                    },
+                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    message: e,
+                                    ..Default::default()
+                                });
                             }
                         }
                     }
@@ -173,22 +174,22 @@ impl Backend {
                             end: Position { line, character: col + root.len() as u32 },
                         },
                         severity: Some(DiagnosticSeverity::ERROR),
-                        message: format!("Unknown variable: {}", root),
+                        message: format!("Unknown variable '{}'. Available: {}", root, scope.all_vars().join(", ")),
                         ..Default::default()
                     });
                 }
                 None
             }
             hudlc::expr::Expr::Binary(left, _, right) => {
-                self.validate_expr(left, scope, line, col)
-                    .or_else(|| self.validate_expr(right, scope, line, col))
+                self.validate_expr(left, scope, schema, line, col)
+                    .or_else(|| self.validate_expr(right, scope, schema, line, col))
             }
             hudlc::expr::Expr::Unary(_, inner) => {
-                self.validate_expr(inner, scope, line, col)
+                self.validate_expr(inner, scope, schema, line, col)
             }
             hudlc::expr::Expr::Call(name, args) => {
                 // Validate built-in functions
-                let known_funcs = ["len"];
+                let known_funcs = ["len", "size", "has", "all", "exists", "filter", "map"];
                 if !known_funcs.contains(&name.as_str()) {
                     return Some(Diagnostic {
                         range: Range {
@@ -202,20 +203,53 @@ impl Backend {
                 }
                 // Validate arguments
                 for arg in args {
-                    if let Some(diag) = self.validate_expr(arg, scope, line, col) {
+                    if let Some(diag) = self.validate_expr(arg, scope, schema, line, col) {
                         return Some(diag);
                     }
                 }
                 None
             }
-            hudlc::expr::Expr::MethodCall(receiver, _method, args) => {
+            hudlc::expr::Expr::MethodCall(receiver, method, args) => {
                 // Validate receiver
-                if let Some(diag) = self.validate_expr(receiver, scope, line, col) {
+                if let Some(diag) = self.validate_expr(receiver, scope, schema, line, col) {
                     return Some(diag);
                 }
-                // Validate arguments
+
+                // CEL macros that introduce temp variables:
+                // items.filter(x, x.active) - x is temp var
+                // items.map(x, x.name) - x is temp var
+                // items.all(x, x > 0) - x is temp var
+                // items.exists(x, x > 0) - x is temp var
+                // items.exists_one(x, x > 0) - x is temp var
+                let cel_macros = ["filter", "map", "all", "exists", "exists_one"];
+
+                if cel_macros.contains(&method.as_str()) && args.len() >= 2 {
+                    // First arg is the temp variable name
+                    if let hudlc::expr::Expr::Variable(temp_var) = &args[0] {
+                        // Create a child scope with the temp variable
+                        let mut macro_scope = scope.child();
+                        macro_scope.add_var(
+                            temp_var.clone(),
+                            scope::VarInfo {
+                                proto_type: hudlc::proto::ProtoType::String, // Generic type
+                                repeated: false,
+                                source: scope::VarSource::CelLocal,
+                            },
+                        );
+
+                        // Validate remaining arguments with the temp var in scope
+                        for arg in args.iter().skip(1) {
+                            if let Some(diag) = self.validate_expr(arg, &macro_scope, schema, line, col) {
+                                return Some(diag);
+                            }
+                        }
+                        return None;
+                    }
+                }
+
+                // Regular method call - validate all arguments normally
                 for arg in args {
-                    if let Some(diag) = self.validate_expr(arg, scope, line, col) {
+                    if let Some(diag) = self.validate_expr(arg, scope, schema, line, col) {
                         return Some(diag);
                     }
                 }
@@ -229,34 +263,35 @@ impl Backend {
     async fn check_switch_exhaustiveness(
         &self,
         content: &str,
-        scope: &HashMap<String, String>,
+        scope: &Scope,
+        schema: &hudlc::proto::ProtoSchema,
     ) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
         // Extract switch statements from content
         let switches = exhaustiveness::extract_switches(content);
 
-        // Try to parse proto schema from content for enum type info
-        let proto_schema = hudlc::proto::ProtoSchema::from_template(content).ok();
         let metadata = param::extract_metadata(content);
 
         for switch_info in &switches {
-            // First try proto-based exhaustiveness check (uses inline enum definitions)
-            if let Some(ref schema) = proto_schema {
-                if let Some(diag) = exhaustiveness::check_switch_with_proto(
-                    switch_info,
-                    schema,
-                    metadata.data_type.as_deref(),
-                ) {
-                    diagnostics.push(diag);
-                    continue;
-                }
+            // Use proto-based exhaustiveness check (uses inline enum definitions)
+            if let Some(diag) = exhaustiveness::check_switch_with_proto(
+                switch_info,
+                schema,
+                metadata.data_type.as_deref(),
+            ) {
+                diagnostics.push(diag);
+                continue;
             }
 
-            // Fall back to Go analyzer-based check
+            // Fall back to Go analyzer-based check (convert scope to old format)
+            let old_scope: HashMap<String, String> = scope.all_vars()
+                .into_iter()
+                .map(|v| (v.clone(), "unknown".to_string()))
+                .collect();
             let mut analyzer = self.analyzer.lock().unwrap();
             if let Some(ref mut client) = *analyzer {
-                if let Some(diag) = exhaustiveness::check_switch(switch_info, scope, client) {
+                if let Some(diag) = exhaustiveness::check_switch(switch_info, &old_scope, client) {
                     diagnostics.push(diag);
                 }
             }
