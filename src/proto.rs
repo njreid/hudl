@@ -89,26 +89,67 @@ pub struct ProtoEnumValue {
     pub number: i32,
 }
 
+/// A proto error with location information.
+#[derive(Debug, Clone)]
+pub struct ProtoError {
+    pub message: String,
+    pub line: u32,
+}
+
 impl ProtoSchema {
     /// Parse proto definitions from a Hudl template content.
     ///
     /// Extracts all `/**` blocks and parses them as proto3 definitions.
-    pub fn from_template(content: &str) -> Result<Self, String> {
+    pub fn from_template(content: &str) -> Result<Self, Vec<ProtoError>> {
         let mut schema = ProtoSchema::default();
+        let mut errors = Vec::new();
 
         // Extract proto blocks from /** ... */ comments
         let proto_block_re = Regex::new(r"(?s)/\*\*\s*(.*?)\s*\*/").unwrap();
 
         for caps in proto_block_re.captures_iter(content) {
-            let block_content = &caps[1];
-            schema.parse_block(block_content)?;
+            let block_match = caps.get(1).unwrap();
+            let block_content = block_match.as_str();
+            let block_offset = block_match.start();
+
+            // Calculate start line of the block content
+            let start_line = content[..block_offset].lines().count() as u32;
+
+            if let Err(e) = schema.parse_block(block_content) {
+                errors.push(ProtoError {
+                    message: e,
+                    line: start_line,
+                });
+            }
         }
 
-        Ok(schema)
+        if errors.is_empty() {
+            Ok(schema)
+        } else {
+            Err(errors)
+        }
     }
 
     /// Parse a single proto block.
     fn parse_block(&mut self, content: &str) -> Result<(), String> {
+        // Simple line-by-line validation to detect obvious syntax errors
+        for (i, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("syntax") || trimmed == "{" || trimmed == "}" {
+                continue;
+            }
+
+            // Check if line matches a known pattern
+            let is_import = trimmed.starts_with("import ") && trimmed.ends_with(";");
+            let is_message_start = trimmed.starts_with("message ") && trimmed.contains("{");
+            let is_enum_start = trimmed.starts_with("enum ") && trimmed.contains("{");
+            let is_field = trimmed.contains("=") && trimmed.ends_with(";");
+
+            if !is_import && !is_message_start && !is_enum_start && !is_field {
+                return Err(format!("Syntax error on line {}: \"{}\"", i + 1, trimmed));
+            }
+        }
+
         // Parse imports
         let import_re = Regex::new(r#"import\s+"([^"]+)"\s*;"#).unwrap();
         for caps in import_re.captures_iter(content) {

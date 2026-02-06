@@ -1,0 +1,13 @@
+/**
+message ErrorData {
+    string name = 1;
+    invalid field syntax here;
+}
+*/
+
+// name: ErrorProto
+// data: ErrorData
+
+el {
+    div `name`
+}

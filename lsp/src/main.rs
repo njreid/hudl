@@ -56,7 +56,22 @@ impl Backend {
         let metadata = param::extract_metadata(content);
 
         // Parse proto schema from template
-        let schema = hudlc::proto::ProtoSchema::from_template(content).unwrap_or_default();
+        let (schema, proto_diagnostics) = match hudlc::proto::ProtoSchema::from_template(content) {
+            Ok(s) => (s, Vec::new()),
+            Err(errors) => {
+                let diags = errors.into_iter().map(|e| Diagnostic {
+                    range: Range {
+                        start: Position { line: e.line, character: 0 },
+                        end: Position { line: e.line, character: 100 },
+                    },
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: format!("Proto error: {}", e.message),
+                    ..Default::default()
+                }).collect();
+                (hudlc::proto::ProtoSchema::default(), diags)
+            }
+        };
+        diagnostics.extend(proto_diagnostics);
 
         // Build scopes with proper variable tracking
         let line_scopes = scope::build_scopes_from_content(

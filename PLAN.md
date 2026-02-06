@@ -293,7 +293,40 @@ github.com/tetratelabs/wazero v1.6.0
 
 ---
 
-## Testing Strategy
+## Phase 9: Component Preview (New)
+
+**Goal:** Provide a live, interactive preview environment for Hudl components.
+
+### 9.1 LSP Web Server Extensions
+
+- [ ] Implement component listing API (`GET /api/components`)
+- [ ] Implement proto schema reflection API (`GET /api/proto-schema/{component}`)
+- [ ] Implement render preview API (`POST /api/render-preview`) using `textproto` data
+- [ ] Implement WebSocket server for hot-reload notifications
+- [ ] Implement static file server for project "public" assets and frontend UI
+
+### 9.2 Mock Data & Persistence
+
+- [ ] Implement "Proto Message -> TextProto Skeleton" generator in Rust
+- [ ] Implement file-based persistence (`*.preview.txtpb`)
+- [ ] Support multiple auxiliary preview files per component in the dropdown
+- [ ] Implement automatic creation of default preview files on selection
+
+### 9.3 Preview Frontend (Svelte 5 + Pico.css)
+
+- [ ] Scaffold Svelte 5 project with Pico.css semantic layout
+- [ ] Implement component selection header (nav + grouped dropdown)
+- [ ] Integrate Monaco Editor for `.textproto` with basic validation
+- [ ] Implement the preview `<iframe>` with isolated styles and hot-reload logic
+- [ ] Implement the Signal Debug sidebar with `postMessage` bridge to iframe
+
+### 9.4 Integration & Embedding
+
+- [ ] Embed frontend assets into `hudl-lsp` binary using `rust-embed`
+- [ ] Add VS Code CodeLens or Command to "Open Hudl Preview"
+- [ ] Implement dummy JS runtime in preview to log `@action` calls
+
+---
 
 ### Unit Tests
 

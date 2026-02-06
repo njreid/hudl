@@ -174,6 +174,45 @@ fn pre_parse(input: &str) -> String {
             continue;
         }
 
+        // Handle tilde attribute: ~on:click="value" or ~on:click~once="value"
+        // The tilde starts an attribute name that can contain ~, :, and .
+        if c == '~' {
+            let prev = if i > 0 { Some(chars[i - 1]) } else { None };
+            // Check if this is an inline tilde attribute (after whitespace)
+            if prev == Some(' ') || prev == Some('\t') || prev == Some('\n') {
+                // Collect the tilde attribute name
+                let start = i;
+                i += 1; // skip the ~
+                while i < chars.len() && is_tilde_attr_char(chars[i]) {
+                    i += 1;
+                }
+                let attr_name: String = chars[start..i].iter().collect();
+
+                // Check if followed by = for property assignment
+                if i < chars.len() && chars[i] == '=' {
+                    result.push_str(&attr_name);
+                    // Let the regular = handling take care of the value
+                } else {
+                    // No value - just the attribute name (boolean attribute)
+                    result.push_str(&attr_name);
+                }
+                continue;
+            }
+            // Check if this is ~> binding shorthand (after element name)
+            if i + 1 < chars.len() && chars[i + 1] == '>' {
+                // element~>signal -> element ~bind:signal
+                // Insert space before, then transform to ~bind:
+                result.push_str(" ~bind:");
+                i += 2; // skip ~>
+                // Collect the signal name (can include ~ for modifiers)
+                while i < chars.len() && is_tilde_attr_char(chars[i]) {
+                    result.push(chars[i]);
+                    i += 1;
+                }
+                continue;
+            }
+        }
+
         // Handle bare word property values: key=value -> key="value"
         if c == '=' && i + 1 < chars.len() && is_ident_start(chars[i + 1]) {
             // Check that we're in a property context (preceded by identifier)
@@ -244,6 +283,11 @@ fn is_ident_start(c: char) -> bool {
 
 fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-'
+}
+
+/// Check if a character is valid in a tilde attribute name (includes ~, :, .)
+fn is_tilde_attr_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '~' || c == ':' || c == '.'
 }
 
 fn is_selector_char(c: char) -> bool {
