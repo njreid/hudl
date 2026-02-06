@@ -772,6 +772,49 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
 
     match node {
         Node::Element(el) => {
+            // Check if this is a component invocation (uppercase tag name)
+            if el.tag.chars().next().map_or(false, |c| c.is_uppercase()) {
+                // Component invocation
+                // Syntax: ComponentName `expr`
+                let arg_val = if !el.children.is_empty() {
+                    if let Node::Text(t) = &el.children[0] {
+                        if t.content.starts_with('`') && t.content.ends_with('`') {
+                            Some(&t.content[1..t.content.len()-1])
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                code.push_str(&pad);
+                code.push_str("{\n");
+                code.push_str(&pad);
+                if let Some(expr) = arg_val {
+                    // Pass specific data to component
+                    code.push_str(&format!(
+                        "    let component_data = cel_eval(\"{}\", &ctx);\n",
+                        escape_string(expr)
+                    ));
+                    code.push_str(&pad);
+                    code.push_str("    // TODO: Convert CelValue back to proto bytes for the component call\n");
+                    code.push_str(&pad);
+                    code.push_str("    // For now, components only support simple calls or pass-through\n");
+                }
+                
+                code.push_str(&pad);
+                code.push_str(&format!(
+                    "    render_{}(r, proto_data);\n",
+                    el.tag.to_lowercase()
+                ));
+                code.push_str(&pad);
+                code.push_str("}\n");
+                return Ok(());
+            }
+
             // Opening tag
             code.push_str(&pad);
             code.push_str(&format!("r.push_str(\"<{}\");\n", el.tag));
@@ -983,6 +1026,20 @@ fn generate_node_cel_with_ctx_scoped(
 
     match node {
         Node::Element(el) => {
+            // Check if this is a component invocation (uppercase tag name)
+            if el.tag.chars().next().map_or(false, |c| c.is_uppercase()) {
+                code.push_str(&pad);
+                code.push_str("{\n");
+                code.push_str(&pad);
+                code.push_str(&format!(
+                    "    render_{}(r, proto_data);\n",
+                    el.tag.to_lowercase()
+                ));
+                code.push_str(&pad);
+                code.push_str("}\n");
+                return Ok(());
+            }
+
             code.push_str(&pad);
             code.push_str(&format!("r.push_str(\"<{}\");\n", el.tag));
 
