@@ -98,6 +98,16 @@ pub fn build_root_scope(schema: &ProtoSchema, data_type: Option<&str>) -> Scope 
     let mut scope = Scope::new();
 
     if let Some(type_name) = data_type {
+        // Add the root variable _data
+        scope.add_var(
+            "_data".to_string(),
+            VarInfo {
+                proto_type: ProtoType::Message(type_name.to_string()),
+                repeated: false,
+                source: VarSource::DataField,
+            },
+        );
+
         if let Some(message) = schema.get_message(type_name) {
             add_message_fields_to_scope(&mut scope, message, VarSource::DataField);
         }

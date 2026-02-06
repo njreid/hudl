@@ -6,11 +6,13 @@ use std::collections::HashMap;
 use regex::Regex;
 
 mod analyzer_client;
+mod component_registry;
 mod exhaustiveness;
 mod param;
 mod scope;
 
 use analyzer_client::AnalyzerClient;
+use component_registry::ComponentRegistry;
 use param::ViewMetadata;
 use scope::Scope;
 
@@ -19,6 +21,7 @@ struct Backend {
     document_map: Mutex<HashMap<Url, String>>,
     analyzer: Mutex<Option<AnalyzerClient>>,
     workspace_root: Mutex<Option<String>>,
+    registry: Mutex<ComponentRegistry>,
 }
 
 const LEGEND_TYPE: &[SemanticTokenType] = &[
@@ -31,6 +34,13 @@ const LEGEND_TYPE: &[SemanticTokenType] = &[
 impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         self.document_map.lock().unwrap().insert(params.uri.clone(), params.text.clone());
+        
+        // Update registry if it's a file URI
+        if let Ok(path) = params.uri.to_file_path() {
+            let mut registry = self.registry.lock().unwrap();
+            registry.process_file(&path);
+        }
+
         self.validate_document(&params.uri, &params.text).await;
     }
 
@@ -92,7 +102,107 @@ impl Backend {
         let switch_diagnostics = self.check_switch_exhaustiveness(content, &root_scope, &schema).await;
         diagnostics.extend(switch_diagnostics);
 
+        // Check component invocations
+        let component_diagnostics = self.validate_component_invocations(content, &line_scopes, &schema).await;
+        diagnostics.extend(component_diagnostics);
+
         self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
+    }
+
+    async fn validate_component_invocations(
+        &self,
+        content: &str,
+        line_scopes: &HashMap<u32, Scope>,
+        schema: &hudlc::proto::ProtoSchema,
+    ) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        // Parse the document to get the AST
+        let doc = match hudlc::parser::parse(content) {
+            Ok(doc) => doc,
+            Err(_) => return diagnostics,
+        };
+
+        let registry = self.registry.lock().unwrap();
+
+        // Recursive helper to traverse AST
+        fn check_nodes(
+            nodes: &[kdl::KdlNode],
+            line_scopes: &HashMap<u32, Scope>,
+            schema: &hudlc::proto::ProtoSchema,
+            registry: &ComponentRegistry,
+            content: &str,
+            diagnostics: &mut Vec<Diagnostic>,
+        ) {
+            for node in nodes {
+                let name = node.name().value();
+                
+                // conventions: components start with uppercase
+                if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    if let Some(info) = registry.get(name) {
+                        // This is a known component!
+                        
+                        // Check if it expects data
+                        if let Some(expected_type) = &info.data_type {
+                            // Check if an argument was passed
+                            let entries: Vec<_> = node.entries().iter().collect();
+                            if entries.is_empty() {
+                                // No data passed to component that expects it
+                                let line = node.span().offset();
+                                let line_num = content[..line].lines().count() as u32;
+                                diagnostics.push(Diagnostic {
+                                    range: Range {
+                                        start: Position { line: line_num, character: 0 },
+                                        end: Position { line: line_num, character: name.len() as u32 },
+                                    },
+                                    severity: Some(DiagnosticSeverity::ERROR),
+                                    message: format!("Component '{}' expects data of type '{}' but none was provided.", name, expected_type),
+                                    ..Default::default()
+                                });
+                            } else {
+                                // Data was passed - check its type
+                                let arg_val = entries[0].value().as_string()
+                                    .map(|s| s.trim_matches('`').to_string());
+                                
+                                if let Some(expr_str) = arg_val {
+                                    let line = node.span().offset();
+                                    let line_num = content[..line].lines().count() as u32;
+                                    let scope = scope::get_scope_for_line(line_scopes, line_num);
+                                    
+                                    // Resolve the type of the expression
+                                    if let Ok(expr) = hudlc::expr::parse(&expr_str) {
+                                        let actual_type = infer_expr_type(&expr, &scope, schema);
+                                        
+                                        if let Some(actual) = actual_type {
+                                            if actual != *expected_type {
+                                                diagnostics.push(Diagnostic {
+                                                    range: Range {
+                                                        start: Position { line: line_num, character: 0 },
+                                                        end: Position { line: line_num, character: (name.len() + expr_str.len() + 3) as u32 },
+                                                    },
+                                                    severity: Some(DiagnosticSeverity::ERROR),
+                                                    message: format!("Type mismatch: Component '{}' expects '{}', but got '{}'.", name, expected_type, actual),
+                                                    ..Default::default()
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Recurse into children
+                if let Some(children) = node.children() {
+                    check_nodes(children.nodes(), line_scopes, schema, registry, content, diagnostics);
+                }
+            }
+        }
+
+        check_nodes(doc.nodes(), line_scopes, schema, &registry, content, &mut diagnostics);
+
+        diagnostics
     }
 
 
@@ -334,6 +444,34 @@ impl Backend {
     }
 }
 
+fn infer_expr_type(
+    expr: &hudlc::expr::Expr,
+    scope: &Scope,
+    schema: &hudlc::proto::ProtoSchema,
+) -> Option<String> {
+    match expr {
+        hudlc::expr::Expr::Variable(path) => {
+            let parts: Vec<&str> = path.split('.').collect();
+            let root = parts[0];
+
+            if let Some(var_info) = scope.lookup(root) {
+                if parts.len() == 1 {
+                    return Some(var_info.proto_type.cel_type().to_string());
+                } else {
+                    let field_path = parts[1..].join(".");
+                    if let hudlc::proto::ProtoType::Message(msg_name) = &var_info.proto_type {
+                        if let Ok(field_type) = schema.resolve_field_path(msg_name, &field_path) {
+                            return Some(field_type.cel_type().to_string());
+                        }
+                    }
+                }
+            }
+            None
+        }
+        _ => None, // Complex expressions not supported yet for type inference
+    }
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -341,7 +479,11 @@ impl LanguageServer for Backend {
         if let Some(root_uri) = params.root_uri {
             if let Ok(path) = root_uri.to_file_path() {
                 let root = path.to_string_lossy().to_string();
-                *self.workspace_root.lock().unwrap() = Some(root);
+                *self.workspace_root.lock().unwrap() = Some(root.clone());
+                
+                // Scan workspace for components
+                let mut registry = self.registry.lock().unwrap();
+                registry.scan_workspace(&root);
             }
         }
 
@@ -578,6 +720,7 @@ async fn main() {
         document_map: Mutex::new(HashMap::new()),
         analyzer: Mutex::new(None),
         workspace_root: Mutex::new(None),
+        registry: Mutex::new(ComponentRegistry::new()),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }
