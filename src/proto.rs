@@ -96,11 +96,14 @@ pub struct ProtoError {
     pub line: u32,
 }
 
+use std::path::{Path, PathBuf};
+
 impl ProtoSchema {
     /// Parse proto definitions from a Hudl template content.
     ///
     /// Extracts all `/**` blocks and parses them as proto3 definitions.
-    pub fn from_template(content: &str) -> Result<Self, Vec<ProtoError>> {
+    /// If `base_path` is provided, it will also attempt to load and parse imported files.
+    pub fn from_template(content: &str, base_path: Option<&Path>) -> Result<Self, Vec<ProtoError>> {
         let mut schema = ProtoSchema::default();
         let mut errors = Vec::new();
 
@@ -123,10 +126,90 @@ impl ProtoSchema {
             }
         }
 
+        // Load imports if base_path is provided
+        if let Some(base) = base_path {
+            if let Err(mut import_errors) = schema.load_imports(base) {
+                errors.append(&mut import_errors);
+            }
+        }
+
         if errors.is_empty() {
             Ok(schema)
         } else {
             Err(errors)
+        }
+    }
+
+    /// Load and parse all imported proto files recursively.
+    pub fn load_imports(&mut self, base_path: &Path) -> Result<(), Vec<ProtoError>> {
+        let mut errors = Vec::new();
+        let imports_to_load = self.imports.clone();
+        
+        for import_path in imports_to_load {
+            let full_path = if Path::new(&import_path).is_absolute() {
+                PathBuf::from(&import_path)
+            } else {
+                base_path.join(&import_path)
+            };
+
+            if !full_path.exists() {
+                // If .proto doesn't exist, try .hudl (some imports might refer to Hudl files with inline protos)
+                let hudl_path = full_path.with_extension("hudl");
+                if hudl_path.exists() {
+                    self.load_from_file(&hudl_path, &mut errors);
+                } else {
+                    errors.push(ProtoError {
+                        message: format!("Import not found: {}", import_path),
+                        line: 0,
+                    });
+                }
+                continue;
+            }
+
+            self.load_from_file(&full_path, &mut errors);
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn load_from_file(&mut self, path: &Path, errors: &mut Vec<ProtoError>) {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let is_hudl = path.extension().and_then(|s| s.to_str()) == Some("hudl");
+            
+            if is_hudl {
+                // For Hudl files, extract the schema and merge
+                match Self::from_template(&content, path.parent()) {
+                    Ok(other_schema) => self.merge(other_schema),
+                    Err(mut e) => errors.append(&mut e),
+                }
+            } else {
+                // For .proto files, parse directly
+                if let Err(e) = self.parse_block(&content) {
+                    errors.push(ProtoError {
+                        message: format!("Error in {}: {}", path.display(), e),
+                        line: 0,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Merge another schema into this one.
+    pub fn merge(&mut self, other: ProtoSchema) {
+        for (name, msg) in other.messages {
+            self.messages.insert(name, msg);
+        }
+        for (name, en) in other.enums {
+            self.enums.insert(name, en);
+        }
+        for import in other.imports {
+            if !self.imports.contains(&import) {
+                self.imports.push(import);
+            }
         }
     }
 
@@ -418,7 +501,7 @@ message User {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         assert!(schema.messages.contains_key("User"));
 
         let user = schema.get_message("User").unwrap();
@@ -443,7 +526,7 @@ message Address {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         assert!(schema.messages.contains_key("User"));
         assert!(schema.messages.contains_key("Address"));
 
@@ -463,7 +546,7 @@ message UserList {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let list = schema.get_message("UserList").unwrap();
         assert!(list.fields[0].repeated);
     }
@@ -479,7 +562,7 @@ enum Status {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         assert!(schema.enums.contains_key("Status"));
 
         let status = schema.get_enum("Status").unwrap();
@@ -500,7 +583,7 @@ message Dashboard {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         assert_eq!(schema.imports.len(), 2);
         assert!(schema.imports.contains(&"models/user.proto".to_string()));
         assert!(schema.imports.contains(&"common/types.proto".to_string()));
@@ -525,7 +608,7 @@ message Address {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
 
         // Direct field access
         let name_type = schema.resolve_field_path("User", "name").unwrap();
@@ -558,7 +641,7 @@ enum Role {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let values = schema.get_enum_values("Role").unwrap();
         assert_eq!(values.len(), 4);
         assert!(values.contains(&"ROLE_ADMIN".to_string()));
@@ -574,7 +657,7 @@ message Config {
 }
 */
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let config = schema.get_message("Config").unwrap();
 
         assert_eq!(config.fields.len(), 2);
@@ -611,7 +694,7 @@ el {
     div `title`
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         assert!(schema.imports.contains(&"base.proto".to_string()));
         assert!(schema.messages.contains_key("DashboardData"));
         assert!(schema.messages.contains_key("Metric"));

@@ -54,7 +54,7 @@ fn run_build(dir: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> 
             let content = fs::read_to_string(&path)?;
 
             // Parse proto schema from template (if present)
-            if let Ok(schema) = ProtoSchema::from_template(&content) {
+            if let Ok(schema) = ProtoSchema::from_template(&content, path.parent()) {
                 // Merge into combined schema
                 for (name, msg) in schema.messages {
                     combined_schema.messages.insert(name, msg);

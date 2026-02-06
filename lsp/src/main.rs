@@ -65,8 +65,12 @@ impl Backend {
         // 2. Type validation
         let metadata = param::extract_metadata(content);
 
+        // Get base path for imports
+        let base_path = uri.to_file_path().ok();
+        let base_dir = base_path.as_ref().and_then(|p| p.parent());
+
         // Parse proto schema from template
-        let (schema, proto_diagnostics) = match hudlc::proto::ProtoSchema::from_template(content) {
+        let (schema, proto_diagnostics) = match hudlc::proto::ProtoSchema::from_template(content, base_dir) {
             Ok(s) => (s, Vec::new()),
             Err(errors) => {
                 let diags = errors.into_iter().map(|e| Diagnostic {
@@ -101,6 +105,25 @@ impl Backend {
         let root_scope = scope::build_root_scope(&schema, metadata.data_type.as_deref());
         let switch_diagnostics = self.check_switch_exhaustiveness(content, &root_scope, &schema).await;
         diagnostics.extend(switch_diagnostics);
+
+        // Validate component data type exists if specified
+        if let Some(dt) = &metadata.data_type {
+            if schema.get_message(dt).is_none() && schema.get_enum(dt).is_none() {
+                // If it's not a primitive type either
+                let primitives = ["string", "int32", "int64", "bool", "float", "double"];
+                if !primitives.contains(&dt.as_str()) {
+                    diagnostics.push(Diagnostic {
+                        range: Range {
+                            start: Position { line: 0, character: 0 }, // TODO: Better position
+                            end: Position { line: 0, character: 10 },
+                        },
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message: format!("Unknown data type '{}' specified in // data: comment.", dt),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
 
         // Check component invocations
         let component_diagnostics = self.validate_component_invocations(content, &line_scopes, &schema).await;
