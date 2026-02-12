@@ -1,11 +1,14 @@
 use kdl::{KdlDocument, KdlError};
 
-pub fn parse(input: &str) -> Result<KdlDocument, KdlError> {
+pub fn parse(input: &str) -> Result<KdlDocument, String> {
     let normalized = pre_parse(input);
     if std::env::var("HUDL_DEBUG").is_ok() {
         eprintln!("--- NORMALIZED ---\n{}\n------------------", normalized);
     }
-    normalized.parse()
+    normalized.parse().map_err(|e: KdlError| {
+        // kdl-rs errors already have good Display impl with line/col
+        format!("KDL parse error: {}", e)
+    })
 }
 
 fn pre_parse(input: &str) -> String {
@@ -127,30 +130,33 @@ fn pre_parse(input: &str) -> String {
             }
         }
 
-        // Handle tag.class selector shorthand (e.g., div.foo.bar)
-        if is_ident_start(c) {
+        // Handle tag.class selector shorthand (e.g., div.foo.bar) or path-like identifiers
+        if is_ident_start(c) || (c == '.' && i + 1 < chars.len() && chars[i+1] == '/') {
             let prev = if i > 0 { Some(chars[i - 1]) } else { None };
             if prev.is_none() || prev == Some('\n') || prev == Some(' ') || prev == Some('\t') ||
                prev == Some('{') || prev == Some(';') {
-                // Collect the identifier
+                
+                // Collect the full identifier/path/selector chain
                 let start = i;
-                while i < chars.len() && is_ident_char(chars[i]) {
+                while i < chars.len() && (is_ident_char(chars[i]) || chars[i] == '/' || chars[i] == '.' || chars[i] == '&' || chars[i] == '#') {
                     i += 1;
                 }
-                let ident: String = chars[start..i].iter().collect();
+                let full_ident: String = chars[start..i].iter().collect();
 
-                // Check if followed by ., & or # for selector chain
-                if i < chars.len() && (chars[i] == '.' || chars[i] == '&' || chars[i] == '#') {
-                    // This is a selector chain like div.foo or div&id
+                // Quote if it's not a plain identifier
+                // Plain identifier: only letters, numbers, _, - and doesn't start with digit/path
+                let is_plain = !full_ident.contains('/') && 
+                              !full_ident.contains('.') && 
+                              !full_ident.contains('&') && 
+                              !full_ident.contains('#') &&
+                              is_ident_start(full_ident.chars().next().unwrap_or(' '));
+
+                if !is_plain {
                     result.push('"');
-                    result.push_str(&ident);
-                    while i < chars.len() && is_selector_char(chars[i]) {
-                        result.push(chars[i]);
-                        i += 1;
-                    }
+                    result.push_str(&full_ident);
                     result.push('"');
                 } else {
-                    result.push_str(&ident);
+                    result.push_str(&full_ident);
                 }
                 continue;
             }
@@ -634,6 +640,20 @@ el {
 "#;
         let result = parse(input);
         assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_import_with_path() {
+        let input = r#"
+import {
+    ./layout
+}
+el {
+    div "hello"
+}
+"#;
+        let result = parse(input);
+        assert!(result.is_ok(), "Import path should be parseable (maybe after pre-parsing fixes): {:?}", result.err());
     }
 }
 

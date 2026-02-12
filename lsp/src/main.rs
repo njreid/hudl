@@ -59,7 +59,7 @@ impl Backend {
                     end: Position { line: 0, character: 0 },
                 },
                 severity: Some(DiagnosticSeverity::ERROR),
-                message: format!("{}", e),
+                message: e,
                 ..Default::default()
             });
             self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;

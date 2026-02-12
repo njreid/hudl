@@ -65,7 +65,7 @@ fn run_build(dir: &str, output: &str) -> Result<(), Box<dyn std::error::Error>> 
                 combined_schema.imports.extend(schema.imports);
             }
 
-            let doc = parser::parse(&content)?;
+            let doc = parser::parse(&content).map_err(|e| format!("Parse error in {}: {}", path.display(), e))?;
             let root = transformer::transform_with_metadata(&doc, &content)?;
 
             // Use component name from metadata if available, otherwise derive from filename

@@ -36,7 +36,7 @@ el {
 `
 
 const IndexTemplate = `import {
-    ./layout
+    "./layout"
 }
 
 /**
