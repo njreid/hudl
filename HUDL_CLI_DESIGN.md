@@ -37,7 +37,7 @@ Initializes a new Hudl-enabled Go web project in the current directory.
 
 1. **Prompt**: Ask the user for the project name (e.g., "my-hudl-app").
 2. **Go Module**: Run `go mod init <project-name>`.
-3. **Dependencies**: Fetch `github.com/go-chi/chi/v5` and `github.com/njr/hudl/pkg/hudl`.
+3. **Dependencies**: Fetch `github.com/go-chi/chi/v5` and `github.com/njreid/hudl/pkg/hudl`.
 4. **Structure**:
     *   `main.go`: The web server entry point.
     *   `views/`: Directory for `.hudl` templates.

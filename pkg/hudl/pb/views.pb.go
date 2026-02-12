@@ -670,7 +670,7 @@ const file_proto_views_proto_rawDesc = "" +
 	"\x0eSTATUS_UNKNOWN\x10\x00\x12\x11\n" +
 	"\rSTATUS_ACTIVE\x10\x01\x12\x12\n" +
 	"\x0eSTATUS_PENDING\x10\x02\x12\x11\n" +
-	"\rSTATUS_FAILED\x10\x03B!Z\x1fgithub.com/njr/hudl/pkg/hudl/pbb\x06proto3"
+	"\rSTATUS_FAILED\x10\x03B$Z\"github.com/njreid/hudl/pkg/hudl/pbb\x06proto3"
 
 var (
 	file_proto_views_proto_rawDescOnce sync.Once

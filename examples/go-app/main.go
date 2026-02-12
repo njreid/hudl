@@ -18,8 +18,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/njr/hudl/examples/go-app/mockdata"
-	"github.com/njr/hudl/pkg/hudl"
+	"github.com/njreid/hudl/examples/go-app/mockdata"
+	"github.com/njreid/hudl/pkg/hudl"
 )
 
 // App holds the application state including the Hudl runtime.

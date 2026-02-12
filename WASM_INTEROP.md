@@ -49,7 +49,7 @@ We will generate package-specific wrappers to abstract the WASM complexity.
 ### Golang Wrapper (`hudl-go`)
 *   **Usage**:
     ```go
-    import "github.com/njr/hudl-go"
+    import "github.com/njreid/hudl-go"
     
     views, _ := hudl.Load("views.wasm")
     html, _ := views.Render("Dashboard", map[string]any{"User": user})

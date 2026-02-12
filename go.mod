@@ -1,4 +1,4 @@
-module github.com/njr/hudl
+module github.com/njreid/hudl
 
 go 1.25.6
 

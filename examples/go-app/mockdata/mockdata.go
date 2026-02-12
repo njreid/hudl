@@ -5,7 +5,7 @@ package mockdata
 import (
 	"fmt"
 
-	pb "github.com/njr/hudl/pkg/hudl/pb"
+	pb "github.com/njreid/hudl/pkg/hudl/pb"
 )
 
 // GetDashboardData returns mock dashboard data.

@@ -73,5 +73,5 @@ func TestCLI_Init(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(projectPath, "main.go"))
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "github.com/go-chi/chi/v5")
-	assert.Contains(t, string(content), "github.com/njr/hudl/pkg/hudl")
+	assert.Contains(t, string(content), "github.com/njreid/hudl/pkg/hudl")
 }

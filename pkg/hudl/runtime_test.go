@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/njr/hudl/pkg/hudl/pb"
+	"github.com/njreid/hudl/pkg/hudl/pb"
 )
 
 func TestRuntime_RenderSimple(t *testing.T) {

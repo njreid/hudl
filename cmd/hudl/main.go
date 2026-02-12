@@ -66,8 +66,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/njr/hudl/pkg/hudl"
-	"github.com/njr/hudl/pkg/hudl/pb"
+	"github.com/njreid/hudl/pkg/hudl"
+	"github.com/njreid/hudl/pkg/hudl/pb"
 )
 
 func main() {
@@ -261,10 +261,31 @@ func runInit() {
 
 	// 5. Fetch dependencies
 	fmt.Println("Fetching dependencies...")
-	// Note: using github.com/njr/hudl which is the current project
+	
+	// Determine if we should use a local replace for development
+	// If we are inside the hudl repo, we want to point to it locally
+	absPath, _ := filepath.Abs(".")
+	if strings.Contains(absPath, "github.com/njreid/hudl") || strings.Contains(absPath, "code/hudl") {
+		fmt.Println("  Detecting local development environment, adding replace directive...")
+		// Try to find the root of the repo
+		repoRoot := absPath
+		for i := 0; i < 5; i++ {
+			if _, err := os.Stat(filepath.Join(repoRoot, "go.mod")); err == nil {
+				// Verify it's OUR go.mod
+				if content, _ := os.ReadFile(filepath.Join(repoRoot, "go.mod")); strings.Contains(string(content), "module github.com/njreid/hudl") {
+					cmd := exec.Command("go", "mod", "edit", "-replace", "github.com/njreid/hudl="+repoRoot)
+					cmd.Dir = name
+					cmd.Run()
+					break
+				}
+			}
+			repoRoot = filepath.Dir(repoRoot)
+		}
+	}
+
 	deps := []string{
 		"github.com/go-chi/chi/v5",
-		"github.com/njr/hudl",
+		"github.com/njreid/hudl",
 	}
 	for _, dep := range deps {
 		fmt.Printf("  get %s...\n", dep)

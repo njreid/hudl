@@ -8,7 +8,7 @@ syntax = "proto3";
 
 package hudl;
 
-option go_package = "github.com/njr/hudl/pkg/hudl/pb";
+option go_package = "github.com/njreid/hudl/pkg/hudl/pb";
 
 // SimpleData is the data type for the Simple view.
 message SimpleData {
