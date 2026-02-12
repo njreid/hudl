@@ -384,14 +384,14 @@ See `DATASTAR_DESIGN.md` for full syntax reference and attribute mappings.
 
 ---
 
-## Phase 11: Hudl CLI (New)
+## Phase 11: Hudl CLI (In Progress)
 
 **Goal:** Provide a `go install`-able CLI for binary management and project scaffolding.
 
 ### 11.1 CLI Core
 
-- [ ] Set up `cmd/hudl` package and command-line argument parsing.
-- [ ] Implement interactive prompting for project metadata.
+- [x] Set up `cmd/hudl` package and command-line argument parsing.
+- [x] Implement interactive prompting for project metadata.
 
 ### 11.2 Binary Management (`hudl install`)
 
@@ -401,14 +401,15 @@ See `DATASTAR_DESIGN.md` for full syntax reference and attribute mappings.
 
 ### 11.3 Project Scaffolding (`hudl init`)
 
-- [ ] Implement `go mod init` and dependency fetching.
-- [ ] Create `main.go` template with `chi` router and static asset serving.
-- [ ] Create `views/layout.hudl` and `views/index.hudl` templates.
-- [ ] Create `./public` directory for static assets.
+- [x] Implement `go mod init` and dependency fetching.
+- [x] Create `main.go` template with `chi` router and static asset serving.
+- [x] Create `views/layout.hudl` and `views/index.hudl` templates.
+- [x] Create `./public` directory for static assets.
 
 ### 11.4 Verification & Testing
 
-- [ ] Implement unit tests for CLI commands.
+- [x] Implement unit tests for CLI commands.
 - [ ] Implement integration tests for project scaffolding.
 - [ ] Ensure `go install` works as expected.
+
 
