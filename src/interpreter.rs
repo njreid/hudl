@@ -33,13 +33,18 @@ impl std::fmt::Display for RenderError {
 ///
 /// # Returns
 /// Rendered HTML string, or an error.
-pub fn render(root: &Root, schema: &ProtoSchema, data_bytes: &[u8]) -> Result<String, RenderError> {
+pub fn render(
+    root: &Root,
+    schema: &ProtoSchema,
+    data_bytes: &[u8],
+    components: &HashMap<String, &Root>,
+) -> Result<String, RenderError> {
     if let Some(data_type) = &root.data_type {
         // Decode proto wire format using the schema (handles empty data with defaults)
         let cel_value = decode_proto_message(data_bytes, data_type, schema)?;
-        render_with_values(root, schema, cel_value)
+        render_with_values(root, schema, cel_value, components)
     } else {
-        render_with_values(root, schema, CelValue::Null)
+        render_with_values(root, schema, CelValue::Null, components)
     }
 }
 
@@ -49,6 +54,7 @@ pub fn render(root: &Root, schema: &ProtoSchema, data_bytes: &[u8]) -> Result<St
 /// * `root` - The parsed template AST
 /// * `schema` - Proto schema for enum constants
 /// * `data` - Pre-decoded CelValue (typically a Map from textproto parsing)
+/// * `components` - Map of component names to their ASTs
 ///
 /// # Returns
 /// Rendered HTML string, or an error.
@@ -56,6 +62,7 @@ pub fn render_with_values(
     root: &Root,
     schema: &ProtoSchema,
     data: CelValue,
+    components: &HashMap<String, &Root>,
 ) -> Result<String, RenderError> {
     let mut ctx = EvalContext::new();
 
@@ -77,7 +84,7 @@ pub fn render_with_values(
 
     // Render the AST
     let mut output = String::new();
-    render_nodes(&root.nodes, &ctx, schema, &mut output)?;
+    render_nodes(&root.nodes, &ctx, schema, &mut output, components)?;
 
     Ok(output)
 }
@@ -298,9 +305,10 @@ fn render_nodes(
     ctx: &EvalContext,
     schema: &ProtoSchema,
     output: &mut String,
+    components: &HashMap<String, &Root>,
 ) -> Result<(), RenderError> {
     for node in nodes {
-        render_node(node, ctx, schema, output)?;
+        render_node(node, ctx, schema, output, components)?;
     }
     Ok(())
 }
@@ -311,21 +319,53 @@ fn render_node(
     ctx: &EvalContext,
     schema: &ProtoSchema,
     output: &mut String,
+    components: &HashMap<String, &Root>,
 ) -> Result<(), RenderError> {
     match node {
-        Node::Element(el) => render_element(el, ctx, schema, output),
+        Node::Element(el) => render_element(el, ctx, schema, output, components),
         Node::Text(text) => render_text(&text.content, ctx, output),
-        Node::ControlFlow(cf) => render_control_flow(cf, ctx, schema, output),
+        Node::ControlFlow(cf) => render_control_flow(cf, ctx, schema, output, components),
     }
 }
 
-/// Render an HTML element.
+/// Render an HTML element or component.
 fn render_element(
     el: &Element,
     ctx: &EvalContext,
     schema: &ProtoSchema,
     output: &mut String,
+    components: &HashMap<String, &Root>,
 ) -> Result<(), RenderError> {
+    // Check if this is a component invocation
+    if let Some(comp_root) = components.get(&el.tag) {
+        // Component invocation
+        // 1. Prepare data for the component
+        let mut comp_ctx = EvalContext::new();
+
+        // Pass arguments as fields in the new context
+        // Syntax: Component key=value
+        for (key, value) in &el.attributes {
+            if value.contains('`') {
+                let rendered = render_interpolated_string(value, ctx)?;
+                comp_ctx.add_string(key, &rendered);
+            } else {
+                comp_ctx.add_string(key, value);
+            }
+        }
+
+        // Special handling for content slot: 'content' variable
+        // Render children of the component invocation and pass as 'content'
+        if !el.children.is_empty() {
+            let mut content_html = String::new();
+            render_nodes(&el.children, ctx, schema, &mut content_html, components)?;
+            comp_ctx.add_string("content", &content_html);
+        }
+
+        // 2. Render the component's nodes
+        return render_nodes(&comp_root.nodes, &comp_ctx, schema, output, components);
+    }
+
+    // Standard HTML element
     // Void elements (no closing tag)
     let void_elements = [
         "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
@@ -396,7 +436,7 @@ fn render_element(
 
     if !is_void {
         // Render children
-        render_nodes(&el.children, ctx, schema, output)?;
+        render_nodes(&el.children, ctx, schema, output, components)?;
 
         // Closing tag
         output.push_str("</");
@@ -438,6 +478,7 @@ fn render_control_flow(
     ctx: &EvalContext,
     schema: &ProtoSchema,
     output: &mut String,
+    components: &HashMap<String, &Root>,
 ) -> Result<(), RenderError> {
     match cf {
         ControlFlow::If {
@@ -447,9 +488,9 @@ fn render_control_flow(
         } => {
             let result = evaluate_cel(condition, ctx)?;
             if cel::is_truthy(&result) {
-                render_nodes(then_block, ctx, schema, output)?;
+                render_nodes(then_block, ctx, schema, output, components)?;
             } else if let Some(else_nodes) = else_block {
-                render_nodes(else_nodes, ctx, schema, output)?;
+                render_nodes(else_nodes, ctx, schema, output, components)?;
             }
         }
         ControlFlow::Each {
@@ -466,7 +507,7 @@ fn render_control_flow(
 
                     // If the item is a map, also add its fields directly
                     // (some templates access fields directly on the binding)
-                    render_nodes(body, &child_ctx, schema, output)?;
+                    render_nodes(body, &child_ctx, schema, output, components)?;
                 }
             }
         }
@@ -482,7 +523,7 @@ fn render_control_flow(
             for SwitchCase(pattern, children) in cases {
                 // Try matching as string literal or enum value name
                 if switch_str == *pattern {
-                    render_nodes(children, ctx, schema, output)?;
+                    render_nodes(children, ctx, schema, output, components)?;
                     matched = true;
                     break;
                 }
@@ -490,7 +531,7 @@ fn render_control_flow(
 
             if !matched {
                 if let Some(default_nodes) = default {
-                    render_nodes(default_nodes, ctx, schema, output)?;
+                    render_nodes(default_nodes, ctx, schema, output, components)?;
                 }
             }
         }
@@ -621,7 +662,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains("<div class=\"container\">"));
         assert!(html.contains("<h1>Hello World</h1>"));
     }
@@ -646,7 +687,7 @@ el {
         // Field 1, wire type 2 (length-delimited): tag = (1 << 3) | 2 = 10
         // Length = 2, value = "Hi"
         let data: Vec<u8> = vec![10, 2, b'H', b'i'];
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("Hi"));
     }
 
@@ -673,12 +714,12 @@ el {
 
         // show = true: field 1, varint, tag = 8, value = 1
         let data_true: Vec<u8> = vec![8, 1];
-        let html = render(&root, &schema, &data_true).unwrap();
+        let html = render(&root, &schema, &data_true, &HashMap::new()).unwrap();
         assert!(html.contains("Visible"));
         assert!(!html.contains("Hidden"));
 
         // show = false (default, empty data)
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains("Hidden"));
         assert!(!html.contains("Visible"));
     }
@@ -711,7 +752,7 @@ el {
         // "banana" (6 bytes)
         data.extend_from_slice(&[10, 6, b'b', b'a', b'n', b'a', b'n', b'a']);
 
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("<li>apple</li>"));
         assert!(html.contains("<li>banana</li>"));
     }
@@ -739,7 +780,7 @@ el {
         data.extend_from_slice(&[10, 1, b'a']);
         data.extend_from_slice(&[10, 1, b'b']);
 
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("<span>0</span>"));
         assert!(html.contains("<span>1</span>"));
     }
@@ -777,7 +818,7 @@ el {
 
         // status = 1 (ACTIVE): field 1, varint, tag = 8, value = 1
         let data: Vec<u8> = vec![8, 1];
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("Is Active"));
         assert!(!html.contains("Is Inactive"));
     }
@@ -810,7 +851,7 @@ el {
         let (root, schema) = parse_template(content);
 
         // status = UNKNOWN (0, default)
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains("Other"));
         assert!(!html.contains("Active"));
     }
@@ -844,16 +885,16 @@ el {
 
         // outer=true, inner=true
         let data: Vec<u8> = vec![8, 1, 16, 1];
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("both true"));
 
         // outer=true, inner=false (default)
         let data: Vec<u8> = vec![8, 1];
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("outer only"));
 
         // outer=false (default)
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains("neither"));
     }
 
@@ -883,7 +924,7 @@ el {
         // field 2: "Doe"
         data.extend_from_slice(&[18, 3, b'D', b'o', b'e']);
 
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("Hello Jane Doe!"));
     }
 
@@ -910,11 +951,11 @@ el {
 
         // count = 5: field 1, varint, tag = 8, value = 5
         let data: Vec<u8> = vec![8, 5];
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("has items"));
 
         // count = 0 (default)
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains("empty"));
     }
 
@@ -946,7 +987,7 @@ el {
         data.push(inner_bytes.len() as u8); // length
         data.extend_from_slice(&inner_bytes);
 
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("deep"));
     }
 
@@ -963,7 +1004,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains("<br>"));
         assert!(!html.contains("</br>"));
         assert!(html.contains("<hr>"));
@@ -981,7 +1022,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains(r#"class="foo bar""#));
     }
 
@@ -994,7 +1035,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains(r#"id="main""#));
     }
 
@@ -1021,7 +1062,7 @@ el {
         data.push(url.len() as u8);
         data.extend_from_slice(url);
 
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("href=\"https://example.com\""));
     }
 
@@ -1044,7 +1085,7 @@ el {
 
         // is_disabled=true, is_checked=false
         let data: Vec<u8> = vec![8, 1]; // field 1 = true, field 2 = false (default)
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains(" disabled"));
         assert!(!html.contains("checked"));
     }
@@ -1070,7 +1111,7 @@ el {
         let (root, schema) = parse_template(content);
 
         // No data → empty repeated field
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(!html.contains("<li>"));
     }
 
@@ -1108,7 +1149,7 @@ el {
         data.push(addr.len() as u8);
         data.extend_from_slice(&addr);
 
-        let html = render(&root, &schema, &data).unwrap();
+        let html = render(&root, &schema, &data, &HashMap::new()).unwrap();
         assert!(html.contains("Alice"));
         assert!(html.contains("NYC"));
     }
@@ -1132,7 +1173,7 @@ el {
         let (root, schema) = parse_template(content);
 
         // No data → int32 defaults to 0
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         assert!(html.contains("<span>0</span>"));
     }
 
@@ -1157,7 +1198,7 @@ el {
         let (root, schema) = parse_template(content);
 
         // No data → proto3 defaults
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
         // string defaults to "", int defaults to 0, bool defaults to false
         assert!(html.contains("<span>0</span>"));
         assert!(html.contains("<span>false</span>"));
@@ -1180,7 +1221,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let result = render(&root, &schema, &[]);
+        let result = render(&root, &schema, &[], &HashMap::new());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("nonexistent"), "error: {}", err.message);
@@ -1204,7 +1245,7 @@ el {
 
         // Garbage bytes: an incomplete varint (high bit set, no continuation)
         let bad_data: Vec<u8> = vec![0xFF, 0xFF, 0xFF, 0xFF];
-        let result = render(&root, &schema, &bad_data);
+        let result = render(&root, &schema, &bad_data, &HashMap::new());
         assert!(result.is_err());
     }
 
@@ -1225,7 +1266,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
 
         // Event handler
         assert!(html.contains("data-on-click=\"$count++\""), "HTML: {}", html);
@@ -1246,7 +1287,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
 
         assert!(html.contains("data-on-click=\"handleClick()\""), "HTML: {}", html);
         assert!(html.contains("Click"), "HTML: {}", html);
@@ -1266,7 +1307,7 @@ el {
 }
 "#;
         let (root, schema) = parse_template(content);
-        let html = render(&root, &schema, &[]).unwrap();
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
 
         assert!(html.contains("data-on-submit__prevent"), "HTML: {}", html);
         assert!(html.contains("data-signals-count__ifmissing=\"0\""), "HTML: {}", html);

@@ -1,3 +1,7 @@
+import {
+    ./stat_card
+}
+
 /**
 // Import shared types (in real usage, these would be in separate .proto files)
 import "stat_card.proto";

@@ -43,6 +43,45 @@ div {
 }
 ```
 
+## Components & Imports
+
+Hudl supports component-based architecture. You can define a component in one file and use it in another by importing it.
+
+### Defining a Component
+
+```hudl
+// views/layout.hudl
+// name: AppLayout
+el {
+    html {
+        head { title "My App" }
+        body {
+            main "`raw(content)`"
+        }
+    }
+}
+```
+
+### Importing and Using Components
+
+Use the `import` node at the top of your file to bring in components from other `.hudl` files.
+
+```hudl
+// views/index.hudl
+import {
+    ./layout
+}
+
+// name: HomePage
+el {
+    AppLayout {
+        h1 "Welcome"
+    }
+}
+```
+
+The `import` block takes a list of relative paths (without the `.hudl` extension).
+
 ## Attribute Reference
 
 ### Signals (`let`)

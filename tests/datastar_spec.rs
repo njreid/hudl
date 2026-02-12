@@ -44,7 +44,7 @@ fn render_html(input: &str) -> String {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform_with_metadata(&doc, input).expect("Failed to transform");
     let schema = hudlc::proto::ProtoSchema::from_template(input, None).unwrap_or_default();
-    hudlc::interpreter::render(&root, &schema, &[]).expect("Render failed")
+    hudlc::interpreter::render(&root, &schema, &[], &std::collections::HashMap::new()).expect("Render failed")
 }
 
 // =============================================================================

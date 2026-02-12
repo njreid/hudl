@@ -256,7 +256,15 @@ async fn render_handler(
 
     // Render the template
     let start = std::time::Instant::now();
-    match hudlc::interpreter::render(&cached.root, &cached.schema, &body) {
+    
+    // Build component map for the interpreter
+    let templates = state.templates.lock().unwrap();
+    let mut components = HashMap::new();
+    for (name, cached) in templates.iter() {
+        components.insert(name.clone(), &cached.root);
+    }
+
+    match hudlc::interpreter::render(&cached.root, &cached.schema, &body, &components) {
         Ok(mut html) => {
             let elapsed = start.elapsed();
             if state.verbose {

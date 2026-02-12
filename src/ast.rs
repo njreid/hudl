@@ -6,6 +6,7 @@ pub struct Root {
     pub css: Option<String>,
     pub name: Option<String>,      // Component name from // name: comment
     pub data_type: Option<String>, // Data type from // data: comment
+    pub imports: Vec<String>,      // Files imported via 'import { ... }'
 }
 
 #[derive(Debug, PartialEq)]

@@ -69,20 +69,19 @@ _icon "/favicon.ico"
 
 ### 4. Components & Parameters
 
-Top-level nodes (excluding `import`) define Go functions. Metadata is provided via structured comments.
+Hudl supports reusable components. Top-level metadata is provided via structured comments. Use `import` to use components from other files.
 
 ```kdl
 import {
-    "github.com/myapp/models"
+    ./layout
 }
 
 // name: UserBadge
-// param: user models.User
+// data: User
 el {
-    .badge {
-        span "`user.Name`"
-        if "`user.IsAdmin`" {
-            .icon.star
+    AppLayout title="User Badge" {
+        .badge {
+            span "`name`"
         }
     }
 }
@@ -140,34 +139,32 @@ if "`len(items) == 0`" {
 
 #### Each (Iterators)
 
-Iterates over any Go type implementing an `Iterator` interface. If two positional arguments are provided, the first is the index/key and the second is the value.
+Iterates over a collection using CEL. Inside the block, the binding name and `_index` are available.
 
 ```kdl
-// param: navItems models.NavIterator
-// syntax: each [idx] item of=<expression>
-each i item of="`navItems`" {
+// data: NavData
+each item `nav_items` {
     li {
-        span "Item #`i`: "
-        a href="`item.URL`" "`item.Label`"
+        span "Item #`_index`: "
+        a href="`item.url`" "`item.label`"
     }
 }
 ```
 
 #### Switch (Type & Value)
 
-Provides exhaustiveness checking for Go interfaces
+Provides branching based on values.
 
 ```kdl
-// param: notification models.Notification
-switch "`notification`" {
-    // Type destructuring: 'v' is automatically typed as models.Email
-    case models.Email {
+// data: Notification
+switch `type` {
+    case "email" {
         .icon-email
-        span "`v.Subject`"
+        span `subject`
     }
-    case models.SMS {
+    case "sms" {
         .icon-sms
-        span "`v.PhoneNumber`"
+        span `phone_number`
     }
     default {
         span "Unknown notification"

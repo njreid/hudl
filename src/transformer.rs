@@ -6,25 +6,36 @@ use std::collections::HashMap;
 pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
     let mut nodes = Vec::new();
     let mut css = None;
+    let mut imports = Vec::new();
     let name = None;
     let data_type = None;
 
     for node in doc.nodes() {
-        if node.name().value() == "el" {
-            if let Some(children) = node.children() {
-                let mut view_nodes = Vec::new();
-                for child in children.nodes() {
-                    if child.name().value() == "css" {
-                        css = Some(process_css(child)?);
-                    } else {
-                        view_nodes.push(child.clone());
+        match node.name().value() {
+            "import" => {
+                if let Some(children) = node.children() {
+                    for import_node in children.nodes() {
+                        imports.push(import_node.name().value().to_string());
                     }
                 }
-                nodes.append(&mut transform_block(&view_nodes)?);
             }
+            "el" => {
+                if let Some(children) = node.children() {
+                    let mut view_nodes = Vec::new();
+                    for child in children.nodes() {
+                        if child.name().value() == "css" {
+                            css = Some(process_css(child)?);
+                        } else {
+                            view_nodes.push(child.clone());
+                        }
+                    }
+                    nodes.append(&mut transform_block(&view_nodes)?);
+                }
+            }
+            _ => {}
         }
     }
-    Ok(Root { nodes, css, name, data_type })
+    Ok(Root { nodes, css, name, data_type, imports })
 }
 
 /// Extract component metadata from raw content (before KDL parsing)

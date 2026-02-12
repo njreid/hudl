@@ -35,7 +35,11 @@ el {
 }
 `
 
-const IndexTemplate = `/**
+const IndexTemplate = `import {
+    ./layout
+}
+
+/**
 message IndexData {
     string message = 1;
 }

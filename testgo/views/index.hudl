@@ -1,3 +1,7 @@
+import {
+  ./layout
+}
+
 /**
 message IndexData { string message = 1; }
 */
