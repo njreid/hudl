@@ -7,9 +7,12 @@ use regex::Regex;
 
 mod analyzer_client;
 mod component_registry;
+mod datastar;
 mod exhaustiveness;
 mod param;
 mod scope;
+
+use hudl_lsp::dev_server;
 
 use analyzer_client::AnalyzerClient;
 use component_registry::ComponentRegistry;
@@ -29,6 +32,7 @@ const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::VARIABLE,
     SemanticTokenType::FUNCTION,
     SemanticTokenType::STRING,
+    SemanticTokenType::DECORATOR,
 ];
 
 impl Backend {
@@ -128,6 +132,10 @@ impl Backend {
         // Check component invocations
         let component_diagnostics = self.validate_component_invocations(content, &line_scopes, &schema).await;
         diagnostics.extend(component_diagnostics);
+
+        // Validate Datastar tilde attributes
+        let datastar_diags = datastar::validate_datastar_attrs(content);
+        diagnostics.extend(datastar_diags);
 
         self.client.publish_diagnostics(uri.clone(), diagnostics, None).await;
     }
@@ -516,6 +524,12 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![
+                        "~".into(), "@".into(), "$".into(), ":".into(),
+                    ]),
+                    ..Default::default()
+                }),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
                         SemanticTokensRegistrationOptions {
@@ -588,8 +602,11 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        // Token types: 0=KEYWORD, 1=VARIABLE, 2=FUNCTION, 3=STRING
+        // Token types: 0=KEYWORD, 1=VARIABLE, 2=FUNCTION, 3=STRING, 4=DECORATOR
         let mut raw_tokens: Vec<(u32, u32, u32, u32)> = Vec::new(); // (line, char, len, type)
+
+        // Pre-compute tilde block ranges for DECORATOR highlighting
+        let tilde_ranges = datastar::find_tilde_block_ranges(content);
 
         let keywords = ["if", "else", "each", "switch", "case", "default", "el", "import"];
 
@@ -602,6 +619,43 @@ impl LanguageServer for Backend {
                 // Skip whitespace
                 if chars[i].is_whitespace() {
                     i += 1;
+                    continue;
+                }
+
+                // Check for tilde markers and inline tilde attributes
+                if chars[i] == '~' {
+                    let start = i;
+                    if i + 1 < chars.len() && chars[i + 1] == '>' {
+                        // ~> binding shorthand: DECORATOR for ~>, then VARIABLE for signal name
+                        raw_tokens.push((line_num, start as u32, 2, 4)); // DECORATOR for ~>
+                        i += 2;
+                        if i < chars.len() && (chars[i].is_ascii_alphabetic() || chars[i] == '_') {
+                            let name_start = i;
+                            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                                i += 1;
+                            }
+                            raw_tokens.push((line_num, name_start as u32, (i - name_start) as u32, 1)); // VARIABLE
+                        }
+                    } else if i + 1 < chars.len() && chars[i + 1] == ' ' && i + 2 < chars.len() && chars[i + 2] == '{' {
+                        // ~ { tilde block opener: DECORATOR
+                        raw_tokens.push((line_num, start as u32, 1, 4)); // DECORATOR
+                        i += 1;
+                    } else if i + 1 < chars.len() && chars[i + 1] == '{' {
+                        // ~{ tilde block opener: DECORATOR
+                        raw_tokens.push((line_num, start as u32, 1, 4)); // DECORATOR
+                        i += 1;
+                    } else if i + 1 < chars.len() && (chars[i + 1].is_ascii_alphabetic() || chars[i + 1] == '.') {
+                        // ~attrName inline tilde: DECORATOR for the whole thing
+                        i += 1;
+                        while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == ':' || chars[i] == '.' || chars[i] == '~') {
+                            i += 1;
+                        }
+                        raw_tokens.push((line_num, start as u32, (i - start) as u32, 4)); // DECORATOR
+                    } else {
+                        // Standalone ~
+                        raw_tokens.push((line_num, start as u32, 1, 4)); // DECORATOR
+                        i += 1;
+                    }
                     continue;
                 }
 
@@ -643,16 +697,25 @@ impl LanguageServer for Backend {
                 }
 
                 // Check for keywords/identifiers
-                if chars[i].is_ascii_alphabetic() || chars[i] == '_' {
+                if chars[i].is_ascii_alphabetic() || chars[i] == '_' || chars[i] == '.' {
                     let start = i;
-                    while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
-                        i += 1;
-                    }
-                    let word: String = chars[start..i].iter().collect();
-
-                    // Check if it's a keyword
-                    if keywords.contains(&word.as_str()) {
-                        raw_tokens.push((line_num, start as u32, word.len() as u32, 0)); // KEYWORD
+                    // Inside tilde blocks, attribute names can contain : and .
+                    let in_tilde = tilde_ranges.iter().any(|&(s, e)| line_num > s && line_num < e);
+                    if in_tilde {
+                        while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == ':' || chars[i] == '.') {
+                            i += 1;
+                        }
+                        let word: String = chars[start..i].iter().collect();
+                        // Treat attribute names inside tilde blocks as DECORATOR
+                        raw_tokens.push((line_num, start as u32, word.len() as u32, 4)); // DECORATOR
+                    } else {
+                        while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                            i += 1;
+                        }
+                        let word: String = chars[start..i].iter().collect();
+                        if keywords.contains(&word.as_str()) {
+                            raw_tokens.push((line_num, start as u32, word.len() as u32, 0)); // KEYWORD
+                        }
                     }
                     continue;
                 }
@@ -701,6 +764,22 @@ impl LanguageServer for Backend {
         })))
     }
 
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let document_map = self.document_map.lock().unwrap();
+        let content = match document_map.get(&uri) {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        let items = datastar::get_completions(content, position);
+        if items.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(CompletionResponse::Array(items)))
+    }
+
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = params.text_document.uri;
         let document_map = self.document_map.lock().unwrap();
@@ -735,6 +814,32 @@ impl LanguageServer for Backend {
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Check for dev-server mode
+    if args.iter().any(|a| a == "--dev-server") {
+        let port: u16 = args
+            .windows(2)
+            .find(|w| w[0] == "--port")
+            .and_then(|w| w[1].parse().ok())
+            .unwrap_or(9999);
+
+        let watch_dir = args
+            .windows(2)
+            .find(|w| w[0] == "--watch")
+            .map(|w| std::path::PathBuf::from(&w[1]))
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
+
+        if let Err(e) = dev_server::start(port, watch_dir, verbose).await {
+            eprintln!("Dev server error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    // Default: run LSP mode
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 

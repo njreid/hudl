@@ -591,15 +591,17 @@ fn generate_node(
 
 /// Convert a Datastar attribute from Hudl format to HTML data-* format
 /// Returns (html_attr_name, optional_value)
-fn datastar_attr_to_html(attr: &DatastarAttr) -> (String, Option<String>) {
+pub fn datastar_attr_to_html(attr: &DatastarAttr) -> (String, Option<String>) {
     let name = &attr.name;
     let modifiers = &attr.modifiers;
 
     // Build modifier suffix: ["once", "prevent"] -> "__once__prevent"
+    // Modifier params use ":" in Hudl but "." in Datastar HTML (e.g., debounce:300ms -> __debounce.300ms)
     let mod_suffix = if modifiers.is_empty() {
         String::new()
     } else {
-        format!("__{}", modifiers.join("__"))
+        let html_mods: Vec<String> = modifiers.iter().map(|m| m.replace(':', ".")).collect();
+        format!("__{}", html_mods.join("__"))
     };
 
     // Handle different attribute types
@@ -642,6 +644,8 @@ fn datastar_attr_to_html(attr: &DatastarAttr) -> (String, Option<String>) {
         format!("data-teleport{}", mod_suffix)
     } else if name == "scrollIntoView" {
         format!("data-scroll-into-view{}", mod_suffix)
+    } else if name == "bind" {
+        format!("data-bind{}", mod_suffix)
     } else {
         // Unknown/HTML attributes: disabled -> data-attr-disabled
         format!("data-attr-{}{}", name, mod_suffix)

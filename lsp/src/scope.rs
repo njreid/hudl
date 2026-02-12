@@ -291,7 +291,7 @@ el {
     h1 `title`
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let scope = build_root_scope(&schema, Some("TestData"));
 
         assert!(scope.contains("title"));
@@ -313,7 +313,7 @@ el {
     }
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let line_scopes = build_scopes_from_content(content, &schema, Some("ListData"));
 
         // Root scope should have 'items'
@@ -346,7 +346,7 @@ el {
     }
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let scope = build_root_scope(&schema, Some("UserData"));
 
         // Both name and is_admin should be in scope
@@ -384,7 +384,7 @@ el {
     }
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let scope = build_root_scope(&schema, Some("OrderData"));
 
         // Both id and status should be in scope
@@ -415,7 +415,7 @@ el {
     p `user.address.city`
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let scope = build_root_scope(&schema, Some("PageData"));
 
         // user should be in scope
@@ -450,7 +450,7 @@ el {
     }
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let line_scopes = build_scopes_from_content(content, &schema, Some("CartData"));
 
         // Root scope should have 'items' and 'total'
@@ -487,7 +487,7 @@ el {
     }
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let line_scopes = build_scopes_from_content(content, &schema, Some("CatalogData"));
 
         // Root scope should have 'categories'
@@ -525,7 +525,7 @@ el {
     }
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let scope = build_root_scope(&schema, Some("TagsData"));
 
         assert!(scope.contains("tags"));
@@ -550,7 +550,7 @@ el {
     div "Static content"
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let scope = build_root_scope(&schema, None);
 
         // No variables should be in scope
@@ -598,14 +598,15 @@ el {
     input `username`
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let scope = build_root_scope(&schema, Some("FormData"));
 
         let vars = scope.all_vars();
         assert!(vars.contains(&"username".to_string()));
         assert!(vars.contains(&"email".to_string()));
         assert!(vars.contains(&"password".to_string()));
-        assert_eq!(vars.len(), 3);
+        assert!(vars.contains(&"_data".to_string()));
+        assert_eq!(vars.len(), 4);
     }
 
     #[test]
@@ -673,7 +674,7 @@ el {
     }
 }
 "#;
-        let schema = ProtoSchema::from_template(content).unwrap();
+        let schema = ProtoSchema::from_template(content, None).unwrap();
         let line_scopes = build_scopes_from_content(content, &schema, Some("PageData"));
 
         // Root level: title, teams

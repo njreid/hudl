@@ -164,7 +164,7 @@ fn parse_selector(input: &str) -> (String, Option<String>, Vec<String>) {
     }
 
     for c in input[start_idx..].chars() {
-        if c == '&' {
+        if c == '&' || c == '#' {
             // Commit current
             match mode {
                 't' => tag = current_token,

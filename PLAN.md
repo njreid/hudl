@@ -74,7 +74,7 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 
 ---
 
-## Phase 5: Protocol Buffers Integration (In Progress)
+## Phase 5: Protocol Buffers Integration (Completed)
 
 **Goal:** Use Protocol Buffers for type-safe data contracts.
 
@@ -93,14 +93,14 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 - [x] Parse enum definitions with values
 - [x] Resolve field paths on message types
 - [x] Get enum values for exhaustiveness checking
-- [ ] Embed descriptors in WASM module for CEL type awareness
-- [ ] Resolve cross-file proto references
+- [x] Embed descriptors in WASM module for CEL type awareness
+- [x] Resolve cross-file proto references
 
 ### 5.3 Component Metadata
 
 - [x] Parse `// name:` and `// data:` comments
 - [x] Map `// data:` type to proto message definition
-- [ ] Validate component data types exist in proto definitions
+- [x] Validate component data types exist in proto definitions
 
 ### 5.4 Go Runtime Updates
 
@@ -115,7 +115,7 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 
 ---
 
-## Phase 6: Type Safety & Diagnostics (In Progress)
+## Phase 6: Type Safety & Diagnostics (Completed)
 
 **Goal:** Compile-time validation of CEL expressions against proto schemas.
 
@@ -139,8 +139,8 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 - [x] Report KDL syntax errors with locations
 - [x] Report unknown variable errors
 - [x] Report invalid field access errors (via Go analyzer)
-- [ ] Report proto syntax errors in `/**` blocks
-- [ ] Report type mismatches in component invocations
+- [x] Report proto syntax errors in `/**` blocks
+- [x] Report type mismatches in component invocations
 
 ### 6.4 Switch Exhaustiveness
 
@@ -163,71 +163,72 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 
 ### 7.1 Proto Definitions
 
-- [ ] Create `proto/models.proto` with example messages
-- [ ] Create `proto/views.proto` with view-specific messages
-- [ ] Define enums for status values, roles, etc.
+- [x] Create `proto/views.proto` with view-specific messages
+- [x] Define enums for status values (TransactionStatus)
 
 ### 7.2 Template Updates
 
-- [ ] Update `layout.hudl` with proto types and CEL
-- [ ] Update `dashboard.hudl` with proto types and CEL
-- [ ] Update `form.hudl` with proto types and CEL
-- [ ] Update `marketing.hudl` with proto types and CEL
-- [ ] Create component composition example
+- [x] Update `layout.hudl` with proto types and CEL
+- [x] Update `dashboard.hudl` with proto types and CEL
+- [x] Update `form.hudl` with proto types and CEL
+- [x] Update `marketing.hudl` with proto types and CEL
+- [x] Create component composition example (`dashboard_composed.hudl` + `stat_card.hudl`)
 
 ### 7.3 Go Application
 
-- [ ] Update `examples/go-app` to use proto messages
-- [ ] Generate Go proto bindings
-- [ ] Demonstrate data transformation (DB → Proto → Template)
+- [x] Update `examples/go-app` to use proto messages
+- [x] Generate Go proto bindings (`pkg/hudl/pb/views.pb.go`)
+- [x] Demonstrate data transformation (mockdata → Proto → Template)
 
 ---
 
-## Phase 8: Dev Mode Implementation (New)
+## Phase 8: Dev Mode Implementation (Completed)
 
 **Goal:** Enable hot-reload development workflow where the LSP acts as a rendering sidecar.
 
-### 8.1 LSP Dev Server
+### 8.1 Template Interpreter
 
-- [ ] Add HTTP server to LSP (configurable port, default 9999)
-- [ ] Implement `/render` endpoint accepting JSON:
+- [x] Create `src/interpreter.rs` - walks AST and renders HTML directly using CEL
+- [x] Implement proto wire-format → CEL value decoding with schema awareness
+- [x] Handle control flow: if/else, each, switch/case
+- [x] Support text interpolation with HTML escaping
+- [x] Proto3 default value semantics for unpopulated fields
 
-  ```json
-  { "view": "Dashboard", "data": { ... } }
-  ```
+### 8.2 LSP Dev Server
 
-- [ ] Return rendered HTML or JSON error response
-- [ ] Implement file watching for `.hudl` files (re-parse on change)
-- [ ] Keep parsed templates in memory for instant rendering
+- [x] Add HTTP server to LSP (`lsp/src/dev_server.rs`) using axum
+- [x] Implement `POST /render` endpoint (proto wire bytes + component header → HTML)
+- [x] Implement `GET /health` endpoint
+- [x] Implement `GET /api/components` to list loaded components
+- [x] File watching with `notify` crate (auto-reload on .hudl changes)
+- [x] Template caching in memory for instant rendering
+- [x] CLI: `hudl-lsp --dev-server --port PORT --watch DIR`
 
-### 8.2 Go Runtime Dev/Prod Switching
+### 8.3 Go Runtime Dev/Prod Switching
 
-- [ ] Add `Options` struct with `DevMode` and `LspAddr` fields
-- [ ] Implement `HUDL_DEV` and `HUDL_LSP_ADDR` environment variable support
-- [ ] In dev mode: HTTP POST to LSP for rendering
-- [ ] In prod mode: Use embedded WASM (existing behavior)
-- [ ] Ensure identical API surface in both modes
-
-### 8.3 Dev Mode Communication
-
-- [ ] Send proto wire-format bytes directly (no re-serialization)
-- [ ] HTTP client with connection pooling in Go runtime
-- [ ] Timeout handling (5s default) with fallback behavior
-- [ ] Error propagation from LSP to Go caller
+- [x] Implement `HUDL_DEV` and `HUDL_DEV_ADDR` environment variable support
+- [x] In dev mode: HTTP POST to LSP for rendering
+- [x] In prod mode: Use embedded WASM (existing behavior)
+- [x] Identical API surface in both modes (`Render` and `RenderBytes`)
+- [x] Send proto wire-format bytes directly (no re-serialization)
+- [x] HTTP client with 5s timeout in Go runtime
+- [x] Error propagation from LSP to Go caller
 
 ### 8.4 Developer Experience
 
-- [ ] LSP logs render requests in verbose mode
-- [ ] Show template compilation errors immediately on save
-- [ ] Support partial updates (single component re-render)
-- [ ] Document dev mode setup in README
+- [x] LSP logs render requests in verbose mode
+- [x] Show template compilation errors immediately on save
+- [x] Support partial updates (single component re-render)
+- [x] Document dev mode setup in README
 
 ### 8.5 Testing Dev Mode
 
-- [ ] Integration test: LSP dev server + Go client
-- [ ] Test hot reload: modify template, verify new output
-- [ ] Test error handling: invalid template, LSP unavailable
-- [ ] Benchmark: dev mode latency vs prod mode
+- [x] Interpreter expanded tests (22 tests covering control flow, expressions, elements, proto edge cases, errors)
+- [x] Dev server HTTP tests (11 tests: health, render, error paths, component listing, edit-render-error loop)
+- [x] End-to-end edit-render-error loop test (render v1 → edit v2 → break → recover v3)
+- [x] File watcher integration tests (async watcher → cache update cycle with temp dirs)
+- [x] Go dev mode integration tests (subprocess dev server + Go client)
+- [x] Benchmark: dev mode latency vs prod mode (Dev mode: ~0.14ms for static, ~0.5ms for dynamic)
 
 ---
 
@@ -299,50 +300,115 @@ github.com/tetratelabs/wazero v1.6.0
 
 ### 9.1 LSP Web Server Extensions
 
-- [ ] Implement component listing API (`GET /api/components`)
-- [ ] Implement proto schema reflection API (`GET /api/proto-schema/{component}`)
-- [ ] Implement render preview API (`POST /api/render-preview`) using `textproto` data
-- [ ] Implement WebSocket server for hot-reload notifications
-- [ ] Implement static file server for project "public" assets and frontend UI
+- [x] Implement component listing API (`GET /api/components`)
+- [x] Implement proto schema reflection API (`GET /api/proto-schema/{component}`)
+- [x] Implement render preview API (`POST /api/render-preview`) using `textproto` data
+- [x] Implement WebSocket server for hot-reload notifications
+- [x] Implement static file server for project "public" assets and frontend UI
 
 ### 9.2 Mock Data & Persistence
 
-- [ ] Implement "Proto Message -> TextProto Skeleton" generator in Rust
-- [ ] Implement file-based persistence (`*.preview.txtpb`)
-- [ ] Support multiple auxiliary preview files per component in the dropdown
-- [ ] Implement automatic creation of default preview files on selection
+- [x] Implement "Proto Message -> TextProto Skeleton" generator in Rust
+- [x] Implement file-based persistence (`*.preview.txtpb`)
+- [x] Support multiple auxiliary preview files per component in the dropdown
+- [x] Implement automatic creation of default preview files on selection
 
-### 9.3 Preview Frontend (Svelte 5 + Pico.css)
+### 9.3 Preview Frontend (Svelte 5)
 
-- [ ] Scaffold Svelte 5 project with Pico.css semantic layout
-- [ ] Implement component selection header (nav + grouped dropdown)
-- [ ] Integrate Monaco Editor for `.textproto` with basic validation
-- [ ] Implement the preview `<iframe>` with isolated styles and hot-reload logic
-- [ ] Implement the Signal Debug sidebar with `postMessage` bridge to iframe
+- [x] Scaffold Svelte 5 project with dark theme
+- [x] Implement component selection header (nav + dropdown)
+- [x] Integrate Monaco Editor for `.textproto` editing
+- [x] Implement preview panel with live rendering and hot-reload
+- [x] Implement Signal Debug sidebar (parses Datastar attributes from rendered HTML)
 
 ### 9.4 Integration & Embedding
 
-- [ ] Embed frontend assets into `hudl-lsp` binary using `rust-embed`
+- [x] Embed frontend assets into `hudl-lsp` binary using `rust-embed`
 - [ ] Add VS Code CodeLens or Command to "Open Hudl Preview"
-- [ ] Implement dummy JS runtime in preview to log `@action` calls
+- [x] Implement dummy JS runtime in preview to log `@action` calls
 
 ---
 
-### Unit Tests
+## Phase 10: Datastar Integration
 
-- CEL expression parsing and validation
-- Proto definition parsing
-- Component type checking
-- HTML generation with CEL interpolation
+**Goal:** Generate Datastar `data-*` reactive attributes from Hudl's `~` (tilde) syntax.
 
-### Integration Tests
+See `DATASTAR_DESIGN.md` for full syntax reference and attribute mappings.
 
-- Compile template with proto types
-- Render with proto message input
-- Error handling (invalid expressions, missing fields)
+### 10.1 Core Syntax (Complete)
 
-### End-to-End Tests
+- [x] Tilde block parsing as child node (`{ ~ { ... } }`) — `parser.rs`, `transformer.rs`
+- [x] Inline tilde attribute parsing (`~on:click="value"`) — `parser.rs`
+- [x] `DatastarAttr` AST type and transformer extraction — `transformer.rs`
+- [x] `datastar_attr_to_html` codegen for legacy codegen — `codegen.rs`
+- [x] Basic attribute generation in CEL codegen (`codegen_cel.rs`)
+- [x] Signal/computed detection (`let:` static vs expression → `data-signals` vs `data-computed`) — `codegen.rs:is_computed_expression`
+- [x] Modifier parsing and chaining (`~once`, `~debounce:300ms`) — `transformer.rs:parse_attr_name_and_modifiers`, `codegen.rs:datastar_attr_to_html`
+- [x] Interpreter support for Datastar attributes in dev mode — `interpreter.rs:render_element`
+- [x] Formatter: combine multiple tilde blocks, position as first child
 
-- Full Go application with proto messages
-- Multiple components with composition
-- All control flow constructs
+### 10.2 Bindings
+
+- [x] `~>` binding shorthand parsing (`input~>signalName`)
+- [x] `~bind:` explicit form
+- [x] Formatter normalization to shorthand
+- [x] Binding modifiers (debounce, throttle)
+
+### 10.3 Actions (Complete)
+
+- [x] HTTP actions (`@get`, `@post`, `@put`, `@patch`, `@delete`)
+- [x] Signal actions (`@setAll`, `@toggleAll`, `@fit`, `@peek`)
+- [x] DOM actions (`@clipboard`)
+- [x] Action modifier parsing
+
+### 10.4 Advanced Features
+
+- [x] Intersection observer (`on:intersect`)
+- [x] Teleport (`teleport`)
+- [x] Persist (`persist`, `persist~session`)
+- [x] Scroll into view (`scrollIntoView~smooth`)
+- [x] Element refs (`ref`)
+
+### 10.5 Tooling Integration
+
+- [x] LSP diagnostics for invalid tilde attributes
+- [x] LSP support for signal name completion
+- [x] LSP support for action completion
+- [x] Syntax highlighting differentiation for tilde blocks
+
+### 10.6 Testing
+
+- [x] Un-ignore `tests/datastar_spec.rs` AST + rendering tests (all 63 passing)
+- [x] Un-ignore `tests/datastar_missing_edge_cases_spec.rs` tests (all 6 passing)
+- [x] Un-ignore remaining tests when binding shorthand (`~>`) is implemented
+
+---
+
+## Phase 11: Hudl CLI (New)
+
+**Goal:** Provide a `go install`-able CLI for binary management and project scaffolding.
+
+### 11.1 CLI Core
+
+- [ ] Set up `cmd/hudl` package and command-line argument parsing.
+- [ ] Implement interactive prompting for project metadata.
+
+### 11.2 Binary Management (`hudl install`)
+
+- [ ] Implement OS/Arch detection.
+- [ ] Implement download and extraction logic for Rust binaries (`hudlc`, `hudl-lsp`).
+- [ ] Implement checksum verification for downloaded artifacts.
+
+### 11.3 Project Scaffolding (`hudl init`)
+
+- [ ] Implement `go mod init` and dependency fetching.
+- [ ] Create `main.go` template with `chi` router and static asset serving.
+- [ ] Create `views/layout.hudl` and `views/index.hudl` templates.
+- [ ] Create `./public` directory for static assets.
+
+### 11.4 Verification & Testing
+
+- [ ] Implement unit tests for CLI commands.
+- [ ] Implement integration tests for project scaffolding.
+- [ ] Ensure `go install` works as expected.
+

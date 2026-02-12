@@ -21,9 +21,10 @@
 
 use regex::Regex;
 use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
 
 /// A parsed proto schema containing messages and enums.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProtoSchema {
     pub messages: HashMap<String, ProtoMessage>,
     pub enums: HashMap<String, ProtoEnum>,
@@ -31,7 +32,7 @@ pub struct ProtoSchema {
 }
 
 /// A proto message definition.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtoMessage {
     pub name: String,
     pub fields: Vec<ProtoField>,
@@ -40,7 +41,7 @@ pub struct ProtoMessage {
 }
 
 /// A proto field definition.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtoField {
     pub name: String,
     pub field_type: ProtoType,
@@ -50,7 +51,7 @@ pub struct ProtoField {
 }
 
 /// A proto type (scalar, message, enum, or map).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ProtoType {
     // Scalar types
     Double,
@@ -76,14 +77,14 @@ pub enum ProtoType {
 }
 
 /// A proto enum definition.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtoEnum {
     pub name: String,
     pub values: Vec<ProtoEnumValue>,
 }
 
 /// A proto enum value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtoEnumValue {
     pub name: String,
     pub number: i32,
@@ -217,8 +218,16 @@ impl ProtoSchema {
     fn parse_block(&mut self, content: &str) -> Result<(), String> {
         // Simple line-by-line validation to detect obvious syntax errors
         for (i, line) in content.lines().enumerate() {
-            let trimmed = line.trim();
+            let mut trimmed = line.trim();
             if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("syntax") || trimmed == "{" || trimmed == "}" {
+                continue;
+            }
+
+            // Remove comments from the line for validation
+            if let Some(comment_pos) = trimmed.find("//") {
+                trimmed = trimmed[..comment_pos].trim();
+            }
+            if trimmed.is_empty() {
                 continue;
             }
 
@@ -226,7 +235,7 @@ impl ProtoSchema {
             let is_import = trimmed.starts_with("import ") && trimmed.ends_with(";");
             let is_message_start = trimmed.starts_with("message ") && trimmed.contains("{");
             let is_enum_start = trimmed.starts_with("enum ") && trimmed.contains("{");
-            let is_field = trimmed.contains("=") && trimmed.ends_with(";");
+            let is_field = (trimmed.contains("=") || (trimmed.contains("<") && trimmed.contains(">"))) && trimmed.ends_with(";");
 
             if !is_import && !is_message_start && !is_enum_start && !is_field {
                 return Err(format!("Syntax error on line {}: \"{}\"", i + 1, trimmed));

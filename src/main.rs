@@ -108,6 +108,9 @@ edition = "2021"
 
 [dependencies]
 cel-interpreter = { package = "cel", version = "0.12.0", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+lazy_static = "1.4"
 
 [lib]
 crate-type = ["cdylib"]
@@ -126,6 +129,7 @@ lto = true
     // 4. Build WASM using cargo
     println!("Building WASM...");
     let status = Command::new("cargo")
+        .env("RUSTFLAGS", "-C link-args=-zstack-size=2097152")
         .args([
             "build",
             "--target", "wasm32-unknown-unknown",
@@ -147,7 +151,9 @@ lto = true
     let size_kb = metadata.len() as f64 / 1024.0;
 
     // Cleanup
-    let _ = fs::remove_dir_all(build_dir);
+    if std::env::var("HUDL_DEBUG").is_err() {
+        let _ = fs::remove_dir_all(build_dir);
+    }
 
     println!("Success! Created {} ({:.1} KB)", output, size_kb);
     Ok(())

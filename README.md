@@ -197,3 +197,40 @@ Running `hudlc` compiles your `.hudl` files into a single optimized `views.wasm`
 
 * **Type Checking**: Verifies that fields accessed in backticks (e.g., `user.Name`) exist on the Go struct.
 * **Exhaustiveness**: Warns if a `switch` on an interface misses a specific implementation.
+
+## Development Mode
+
+Hudl provides a high-productivity "Dev Mode" that avoids the need for WASM recompilation during template development.
+
+### 1. Start the LSP Dev Server
+
+The LSP can act as a rendering sidecar. Run it from your project root:
+
+```bash
+hudl-lsp --dev-server --port 9999 --watch ./views
+```
+
+Optional: add `--verbose` or `-v` for detailed request logging.
+
+### 2. Configure the Go Runtime
+
+In your Go application, set the following environment variables (or use `hudl.Options`):
+
+```bash
+export HUDL_DEV=1
+export HUDL_DEV_ADDR=localhost:9999
+```
+
+When `HUDL_DEV` is enabled, the Go runtime will send render requests to the LSP over HTTP instead of executing the WASM binary. 
+
+### 3. Component Preview
+
+The LSP also serves a browser-based preview environment. Once the dev server is running, visit:
+
+`http://localhost:9999`
+
+From here, you can:
+- Select any component in your project.
+- Edit mock data in **Protobuf Text Format** (`.textproto`).
+- See live renders of your components with hot-reload.
+- Debug **Datastar** signals and actions.

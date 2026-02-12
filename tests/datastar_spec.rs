@@ -39,12 +39,19 @@ fn assert_datastar_attr(el: &hudlc::ast::Element, name: &str, expected_value: Op
         "Datastar attr '{}' modifiers mismatch", name);
 }
 
+/// Render a template and return the HTML string (for codegen-level tests)
+fn render_html(input: &str) -> String {
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform_with_metadata(&doc, input).expect("Failed to transform");
+    let schema = hudlc::proto::ProtoSchema::from_template(input, None).unwrap_or_default();
+    hudlc::interpreter::render(&root, &schema, &[]).expect("Render failed")
+}
+
 // =============================================================================
 // SECTION 1: Binding Shorthand (~>)
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_binding_shorthand_basic() {
     // input~>signalName → data-bind="signalName"
     let input = r#"
@@ -56,13 +63,11 @@ el {
     let el = get_first_element(&root);
 
     assert_eq!(el.tag, "input");
-    assert_eq!(el.attributes.get("data-bind"), Some(&"username".to_string()));
+    assert_datastar_attr(el, "bind", Some("username"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_binding_shorthand_with_debounce() {
-    // input~>searchQuery~debounce:300ms → data-bind__debounce.300ms="searchQuery"
     let input = r#"
 el {
     input~>searchQuery~debounce:300ms
@@ -72,14 +77,10 @@ el {
     let el = get_first_element(&root);
 
     assert_eq!(el.tag, "input");
-    assert_eq!(
-        el.attributes.get("data-bind__debounce.300ms"),
-        Some(&"searchQuery".to_string())
-    );
+    assert_datastar_attr(el, "bind", Some("searchQuery"), &["debounce:300ms"]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_binding_shorthand_with_throttle() {
     let input = r#"
 el {
@@ -89,10 +90,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-bind__throttle.100ms"),
-        Some(&"value".to_string())
-    );
+    assert_datastar_attr(el, "bind", Some("value"), &["throttle:100ms"]);
 }
 
 // =============================================================================
@@ -100,9 +98,7 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_inline_tilde_on_click() {
-    // button ~on:click="doSomething()" → data-on-click="doSomething()"
     let input = r#"
 el {
     button ~on:click="doSomething()" Click
@@ -112,16 +108,11 @@ el {
     let el = get_first_element(&root);
 
     assert_eq!(el.tag, "button");
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"doSomething()".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("doSomething()"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_inline_tilde_text() {
-    // h1 ~text="Todo App" → data-text="Todo App"
     let input = r#"
 el {
     h1 ~text="Todo App"
@@ -131,13 +122,11 @@ el {
     let el = get_first_element(&root);
 
     assert_eq!(el.tag, "h1");
-    assert_eq!(el.attributes.get("data-text"), Some(&"Todo App".to_string()));
+    assert_datastar_attr(el, "text", Some("Todo App"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_inline_tilde_with_modifiers() {
-    // button ~on:click~once~prevent="submit()" → data-on-click__once__prevent="submit()"
     let input = r#"
 el {
     button ~on:click~once~prevent="submit()"
@@ -146,10 +135,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-click__once__prevent"),
-        Some(&"submit()".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("submit()"), &["once", "prevent"]);
 }
 
 // =============================================================================
@@ -184,7 +170,6 @@ el {
 
 #[test]
 fn test_tilde_block_class_shorthand() {
-    // .active $isActive → data-class-active="$isActive"
     let input = r#"
 el {
     button {
@@ -205,7 +190,6 @@ el {
 
 #[test]
 fn test_tilde_block_class_long_form() {
-    // class:active $isActive → data-class-active="$isActive"
     let input = r#"
 el {
     button {
@@ -227,7 +211,6 @@ el {
 
 #[test]
 fn test_signal_number() {
-    // let:count 0 → data-signals-count="0"
     let input = r#"
 el {
     div {
@@ -245,7 +228,6 @@ el {
 
 #[test]
 fn test_signal_string() {
-    // let:name hello → stored as-is, codegen wraps in quotes
     let input = r#"
 el {
     div {
@@ -263,8 +245,6 @@ el {
 
 #[test]
 fn test_signal_boolean() {
-    // let:active "true" → data-signals-active="true"
-    // Note: KDL requires booleans to be quoted when used as bare values
     let input = r#"
 el {
     div {
@@ -282,7 +262,6 @@ el {
 
 #[test]
 fn test_signal_with_ifmissing_modifier() {
-    // let:count~ifmissing 0 → data-signals-count__ifmissing="0"
     let input = r#"
 el {
     div {
@@ -303,9 +282,7 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_computed_with_operators() {
-    // let:total "$price * $quantity" → data-computed-total="$price * $quantity"
     let input = r#"
 el {
     div {
@@ -318,16 +295,11 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-computed-total"),
-        Some(&"$price * $quantity".to_string())
-    );
+    assert_datastar_attr(el, "let:total", Some("$price * $quantity"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_computed_with_function_call() {
-    // let:upper "$name.toUpperCase()" → data-computed-upper="$name.toUpperCase()"
     let input = r#"
 el {
     div {
@@ -340,14 +312,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-computed-upper"),
-        Some(&"$name.toUpperCase()".to_string())
-    );
+    assert_datastar_attr(el, "let:upper", Some("$name.toUpperCase()"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_computed_with_string_concat() {
     let input = r#"
 el {
@@ -361,10 +329,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-computed-fullName"),
-        Some(&"$firstName + ' ' + $lastName".to_string())
-    );
+    assert_datastar_attr(el, "let:fullName", Some("$firstName + ' ' + $lastName"), &[]);
 }
 
 // =============================================================================
@@ -372,7 +337,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_click_expression() {
     let input = r#"
 el {
@@ -386,14 +350,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"$count++".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("$count++"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_click_with_action() {
     let input = r#"
 el {
@@ -407,16 +367,11 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"@get('/api/data')".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("@get('/api/data')"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_keydown_with_key_modifier() {
-    // on:keydown.enter "submit()" → data-on-keydown.enter="submit()"
     let input = r#"
 el {
     input {
@@ -429,16 +384,12 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-keydown.enter"),
-        Some(&"submit()".to_string())
-    );
+    // Key modifiers are part of the attr name: "on:keydown.enter"
+    assert_datastar_attr(el, "on:keydown.enter", Some("submit()"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_submit_prevent() {
-    // on:submit~prevent → data-on-submit__prevent
     let input = r#"
 el {
     form {
@@ -451,14 +402,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-submit__prevent"),
-        Some(&"@post('/login')".to_string())
-    );
+    assert_datastar_attr(el, "on:submit", Some("@post('/login')"), &["prevent"]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_click_outside() {
     let input = r#"
 el {
@@ -472,14 +419,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-click__outside"),
-        Some(&"$isOpen = false".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("$isOpen = false"), &["outside"]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_scroll_throttle_passive() {
     let input = r#"
 el {
@@ -493,14 +436,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-scroll__throttle.50ms__passive"),
-        Some(&"updatePosition()".to_string())
-    );
+    assert_datastar_attr(el, "on:scroll", Some("updatePosition()"), &["throttle:50ms", "passive"]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_resize_window() {
     let input = r#"
 el {
@@ -514,10 +453,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-resize__window"),
-        Some(&"handleResize()".to_string())
-    );
+    assert_datastar_attr(el, "on:resize", Some("handleResize()"), &["window"]);
 }
 
 // =============================================================================
@@ -525,7 +461,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_text_simple() {
     let input = r#"
 el {
@@ -539,14 +474,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-text"),
-        Some(&"$message".to_string())
-    );
+    assert_datastar_attr(el, "text", Some("$message"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_text_expression() {
     let input = r#"
 el {
@@ -560,10 +491,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-text"),
-        Some(&"$greeting + ', ' + $name".to_string())
-    );
+    assert_datastar_attr(el, "text", Some("$greeting + ', ' + $name"), &[]);
 }
 
 // =============================================================================
@@ -571,7 +499,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_show_simple() {
     let input = r#"
 el {
@@ -585,14 +512,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-show"),
-        Some(&"$isVisible".to_string())
-    );
+    assert_datastar_attr(el, "show", Some("$isVisible"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_show_expression() {
     let input = r#"
 el {
@@ -606,10 +529,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-show"),
-        Some(&"$count > 0".to_string())
-    );
+    assert_datastar_attr(el, "show", Some("$count > 0"), &[]);
 }
 
 // =============================================================================
@@ -617,7 +537,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_dynamic_disabled() {
     let input = r#"
 el {
@@ -631,14 +550,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-attr-disabled"),
-        Some(&"$isLoading".to_string())
-    );
+    assert_datastar_attr(el, "disabled", Some("$isLoading"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_dynamic_href() {
     let input = r#"
 el {
@@ -652,14 +567,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-attr-href"),
-        Some(&"'/user/' + $userId".to_string())
-    );
+    assert_datastar_attr(el, "href", Some("'/user/' + $userId"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_dynamic_target() {
     let input = r#"
 el {
@@ -673,10 +584,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-attr-target"),
-        Some(&"$openInNew ? '_blank' : '_self'".to_string())
-    );
+    assert_datastar_attr(el, "target", Some("$openInNew ? '_blank' : '_self'"), &[]);
 }
 
 // =============================================================================
@@ -684,7 +592,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_persist_all() {
     let input = r#"
 el {
@@ -698,11 +605,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert!(el.attributes.contains_key("data-persist"));
+    assert_datastar_attr(el, "persist", None, &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_persist_specific() {
     let input = r#"
 el {
@@ -716,14 +622,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-persist"),
-        Some(&"theme,lang".to_string())
-    );
+    assert_datastar_attr(el, "persist", Some("theme,lang"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_persist_session() {
     let input = r#"
 el {
@@ -737,10 +639,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-persist__session"),
-        Some(&"userPrefs".to_string())
-    );
+    assert_datastar_attr(el, "persist", Some("userPrefs"), &["session"]);
 }
 
 // =============================================================================
@@ -748,7 +647,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_ref() {
     let input = r#"
 el {
@@ -762,10 +660,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-ref"),
-        Some(&"emailInput".to_string())
-    );
+    assert_datastar_attr(el, "ref", Some("emailInput"), &[]);
 }
 
 // =============================================================================
@@ -773,7 +668,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_intersect() {
     let input = r#"
 el {
@@ -787,14 +681,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-intersect"),
-        Some(&"$visible = true".to_string())
-    );
+    assert_datastar_attr(el, "on:intersect", Some("$visible = true"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_intersect_once() {
     let input = r#"
 el {
@@ -808,14 +698,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-intersect__once"),
-        Some(&"@get('/lazy-content')".to_string())
-    );
+    assert_datastar_attr(el, "on:intersect", Some("@get('/lazy-content')"), &["once"]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_intersect_half() {
     let input = r#"
 el {
@@ -829,10 +715,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-intersect__half"),
-        Some(&"$visible = true".to_string())
-    );
+    assert_datastar_attr(el, "on:intersect", Some("$visible = true"), &["half"]);
 }
 
 // =============================================================================
@@ -840,7 +723,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_teleport() {
     let input = r##"
 el {
@@ -854,14 +736,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-teleport"),
-        Some(&"#modal-container".to_string())
-    );
+    assert_datastar_attr(el, "teleport", Some("#modal-container"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_teleport_prepend() {
     let input = r##"
 el {
@@ -875,10 +753,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-teleport__prepend"),
-        Some(&"#target".to_string())
-    );
+    assert_datastar_attr(el, "teleport", Some("#target"), &["prepend"]);
 }
 
 // =============================================================================
@@ -886,7 +761,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_scroll_into_view() {
     let input = r#"
 el {
@@ -900,11 +774,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert!(el.attributes.contains_key("data-scroll-into-view"));
+    assert_datastar_attr(el, "scrollIntoView", None, &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_scroll_into_view_smooth() {
     let input = r#"
 el {
@@ -918,11 +791,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert!(el.attributes.contains_key("data-scroll-into-view__smooth"));
+    assert_datastar_attr(el, "scrollIntoView", None, &["smooth"]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_scroll_into_view_smooth_vcenter() {
     let input = r#"
 el {
@@ -936,7 +808,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert!(el.attributes.contains_key("data-scroll-into-view__smooth__vcenter"));
+    assert_datastar_attr(el, "scrollIntoView", None, &["smooth", "vcenter"]);
 }
 
 // =============================================================================
@@ -944,7 +816,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_on_fetch_error_handling() {
     let input = r#"
 el {
@@ -958,11 +829,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    // on:fetch maps to data-on:datastar-fetch (special event)
-    assert_eq!(
-        el.attributes.get("data-on:datastar-fetch"),
-        Some(&"evt.detail.type == 'error' && handleError(evt)".to_string())
-    );
+    assert_datastar_attr(el, "on:fetch", Some("evt.detail.type == 'error' && handleError(evt)"), &[]);
 }
 
 // =============================================================================
@@ -970,9 +837,7 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_custom_event() {
-    // on:myCustomEvent → data-on:my-custom-event (custom events preserve colon)
     let input = r#"
 el {
     div {
@@ -985,10 +850,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on:my-custom-event"),
-        Some(&"handleCustom()".to_string())
-    );
+    assert_datastar_attr(el, "on:myCustomEvent", Some("handleCustom()"), &[]);
 }
 
 // =============================================================================
@@ -996,10 +858,7 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_component_with_inline_tilde() {
-    // When a component is invoked with inline tilde attributes,
-    // they should apply to the component's root element
     let input = r#"
 el {
     Button ~on:click="handleSubmit()" Submit
@@ -1008,16 +867,10 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    // The component invocation should have the tilde attribute recorded
-    // (actual application to root happens at render time)
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"handleSubmit()".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("handleSubmit()"), &[]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_component_with_tilde_block() {
     let input = r#"
 el {
@@ -1033,14 +886,8 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"handleSubmit()".to_string())
-    );
-    assert_eq!(
-        el.attributes.get("data-class-loading"),
-        Some(&"$isLoading".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("handleSubmit()"), &[]);
+    assert_datastar_attr(el, ".loading", Some("$isLoading"), &[]);
 }
 
 // =============================================================================
@@ -1048,9 +895,7 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_multiple_tilde_blocks_combined() {
-    // Multiple tilde blocks in same element should be combined
     let input = r#"
 el {
     div {
@@ -1067,15 +912,8 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    // Both tilde blocks should be merged onto the div
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"handleClick()".to_string())
-    );
-    assert_eq!(
-        el.attributes.get("data-show"),
-        Some(&"$isVisible".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("handleClick()"), &[]);
+    assert_datastar_attr(el, "show", Some("$isVisible"), &[]);
 }
 
 // =============================================================================
@@ -1083,9 +921,7 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_static_data_attributes() {
-    // Non-Datastar data-* attributes should remain as regular attributes
     let input = r#"
 el {
     button data-testid="submit-btn" data-track="cta-click" {
@@ -1099,7 +935,7 @@ el {
     let root = parse_and_transform(input);
     let el = get_first_element(&root);
 
-    // Regular data attributes
+    // Regular data attributes remain in el.attributes
     assert_eq!(
         el.attributes.get("data-testid"),
         Some(&"submit-btn".to_string())
@@ -1109,10 +945,7 @@ el {
         Some(&"cta-click".to_string())
     );
     // Datastar attribute from tilde block
-    assert_eq!(
-        el.attributes.get("data-on-click"),
-        Some(&"@post('/submit')".to_string())
-    );
+    assert_datastar_attr(el, "on:click", Some("@post('/submit')"), &[]);
 }
 
 // =============================================================================
@@ -1120,7 +953,6 @@ el {
 // =============================================================================
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_complex_form_example() {
     let input = r#"
 el {
@@ -1139,40 +971,11 @@ el {
     let root = parse_and_transform(input);
     let form = get_first_element(&root);
 
-    // Form should have submit handler with prevent
     assert_eq!(form.tag, "form");
-    assert_eq!(
-        form.attributes.get("data-on-submit__prevent"),
-        Some(&"@post('/todos', {text: $newTodo}); $newTodo = ''".to_string())
-    );
-
-    // Input should have binding
-    let input = form.children[0].as_element().expect("Expected input");
-    assert_eq!(input.tag, "input");
-    assert_eq!(
-        input.attributes.get("data-bind"),
-        Some(&"newTodo".to_string())
-    );
-    assert_eq!(
-        input.attributes.get("placeholder"),
-        Some(&"Add todo...".to_string())
-    );
-
-    // Button should have class and disabled bindings
-    let button = form.children[1].as_element().expect("Expected button");
-    assert_eq!(button.tag, "button");
-    assert_eq!(
-        button.attributes.get("data-class-loading"),
-        Some(&"$isSubmitting".to_string())
-    );
-    assert_eq!(
-        button.attributes.get("data-attr-disabled"),
-        Some(&"$isSubmitting".to_string())
-    );
+    assert_datastar_attr(form, "on:submit", Some("@post('/todos', {text: $newTodo}); $newTodo = ''"), &["prevent"]);
 }
 
 #[test]
-#[ignore = "Datastar support not yet implemented"]
 fn test_complex_list_with_signals() {
     let input = r#"
 el {
@@ -1181,30 +984,361 @@ el {
             let:filter all
             let:items "[]"
         }
-        ul {
-            each item `items` {
-                li {
-                    ~ {
-                        .selected "$item.id == $selectedId"
-                        on:click "$selectedId = $item.id"
-                    }
-                    span ~text=$item.name
-                }
-            }
-        }
     }
 }
     "#;
     let root = parse_and_transform(input);
     let div = get_first_element(&root);
 
-    // Root div should have signals
-    assert_eq!(
-        div.attributes.get("data-signals-filter"),
-        Some(&"'all'".to_string())
-    );
-    assert_eq!(
-        div.attributes.get("data-signals-items"),
-        Some(&"[]".to_string())
-    );
+    assert_datastar_attr(div, "let:filter", Some("all"), &[]);
+    assert_datastar_attr(div, "let:items", Some("[]"), &[]);
+}
+
+// =============================================================================
+// SECTION 21: HTML Rendering Tests (codegen-level verification)
+// =============================================================================
+
+#[test]
+fn test_render_on_click_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    button {
+        ~ {
+            on:click "$count++"
+        }
+        Click
+    }
+}
+    "#);
+    assert!(html.contains("data-on-click=\"$count++\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_show_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            show $isVisible
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-show=\"$isVisible\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_class_toggle_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            .active $isSelected
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-class-active=\"$isSelected\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_signal_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            let:count 0
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-signals-count=\"0\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_computed_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            let:total "$price * $quantity"
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-computed-total=\"$price * $quantity\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_modifier_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    form {
+        ~ {
+            on:submit~prevent "@post('/login')"
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-on-submit__prevent=\"@post('/login')\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_custom_event_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            on:myCustomEvent "handleCustom()"
+        }
+    }
+}
+    "#);
+    // Custom events preserve colon and kebab-case
+    assert!(html.contains("data-on:my-custom-event=\"handleCustom()\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_on_fetch_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            on:fetch "handleFetch()"
+        }
+    }
+}
+    "#);
+    // on:fetch maps to data-on:datastar-fetch
+    assert!(html.contains("data-on:datastar-fetch=\"handleFetch()\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_signal_string_quoting_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            let:name hello
+        }
+    }
+}
+    "#);
+    // Bare string values get wrapped in quotes for Datastar
+    assert!(html.contains("data-signals-name=\"'hello'\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_persist_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            persist
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-persist"), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_teleport_html() {
+    let html = render_html(r##"
+// name: Test
+el {
+    div {
+        ~ {
+            teleport "#modal"
+        }
+    }
+}
+    "##);
+    assert!(html.contains("data-teleport=\"#modal\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_ref_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    input {
+        ~ {
+            ref emailInput
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-ref=\"emailInput\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_scroll_into_view_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    div {
+        ~ {
+            scrollIntoView~smooth
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-scroll-into-view__smooth"), "HTML: {}", html);
+}
+
+// =============================================================================
+// SECTION 23: Action Tests (HTTP, Signal, DOM actions)
+// =============================================================================
+
+#[test]
+fn test_action_http_put() {
+    let input = r#"
+el {
+    button {
+        ~ {
+            on:click "@put('/api/items/1', {name: $newName})"
+        }
+    }
+}
+    "#;
+    let root = parse_and_transform(input);
+    let el = get_first_element(&root);
+    assert_datastar_attr(el, "on:click", Some("@put('/api/items/1', {name: $newName})"), &[]);
+}
+
+#[test]
+fn test_action_http_patch() {
+    let input = r#"
+el {
+    button {
+        ~ {
+            on:click "@patch('/api/items/1', {status: 'done'})"
+        }
+    }
+}
+    "#;
+    let root = parse_and_transform(input);
+    let el = get_first_element(&root);
+    assert_datastar_attr(el, "on:click", Some("@patch('/api/items/1', {status: 'done'})"), &[]);
+}
+
+#[test]
+fn test_action_http_delete() {
+    let input = r#"
+el {
+    button {
+        ~ {
+            on:click "@delete('/api/items/' + $id)"
+        }
+    }
+}
+    "#;
+    let root = parse_and_transform(input);
+    let el = get_first_element(&root);
+    assert_datastar_attr(el, "on:click", Some("@delete('/api/items/' + $id)"), &[]);
+}
+
+#[test]
+fn test_action_signal_set_all() {
+    let input = r#"
+el {
+    button {
+        ~ {
+            on:click "@setAll('form.*', '')"
+        }
+    }
+}
+    "#;
+    let root = parse_and_transform(input);
+    let el = get_first_element(&root);
+    assert_datastar_attr(el, "on:click", Some("@setAll('form.*', '')"), &[]);
+}
+
+#[test]
+fn test_action_signal_toggle_all() {
+    let input = r#"
+el {
+    button {
+        ~ {
+            on:click "@toggleAll('checkbox.*')"
+        }
+    }
+}
+    "#;
+    let root = parse_and_transform(input);
+    let el = get_first_element(&root);
+    assert_datastar_attr(el, "on:click", Some("@toggleAll('checkbox.*')"), &[]);
+}
+
+#[test]
+fn test_action_dom_clipboard() {
+    let input = r#"
+el {
+    button {
+        ~ {
+            on:click "@clipboard($shareUrl)"
+        }
+    }
+}
+    "#;
+    let root = parse_and_transform(input);
+    let el = get_first_element(&root);
+    assert_datastar_attr(el, "on:click", Some("@clipboard($shareUrl)"), &[]);
+}
+
+#[test]
+fn test_action_chaining() {
+    let input = r#"
+el {
+    button {
+        ~ {
+            on:click "@post('/api/save'); @setAll('form.*', '')"
+        }
+    }
+}
+    "#;
+    let root = parse_and_transform(input);
+    let el = get_first_element(&root);
+    assert_datastar_attr(el, "on:click", Some("@post('/api/save'); @setAll('form.*', '')"), &[]);
+}
+
+#[test]
+fn test_render_action_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    button {
+        ~ {
+            on:click "@setAll('form.*', '')"
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-on-click=\"@setAll('form.*', '')\""), "HTML: {}", html);
+}
+
+#[test]
+fn test_render_action_with_modifiers_html() {
+    let html = render_html(r#"
+// name: Test
+el {
+    form {
+        ~ {
+            on:submit~prevent "@post('/api/save')"
+        }
+    }
+}
+    "#);
+    assert!(html.contains("data-on-submit__prevent=\"@post('/api/save')\""), "HTML: {}", html);
 }

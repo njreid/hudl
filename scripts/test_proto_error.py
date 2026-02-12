@@ -39,7 +39,10 @@ def main():
     
     # 1. Initialize
     print("Initializing...")
-    send_message(proc, "initialize", {"rootUri": "file://" + os.getcwd()}, msg_id=1)
+    send_message(proc, "initialize", {
+        "rootUri": "file://" + os.getcwd(),
+        "capabilities": {}
+    }, msg_id=1)
     init_res = read_message(proc)
     print(f"Init response: {init_res}")
     send_message(proc, "initialized", {})

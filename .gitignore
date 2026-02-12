@@ -9,3 +9,5 @@ hudl-analyzer
 node_modules/
 package.json
 package-lock.json
+lsp/preview/dist/
+hudl_build/

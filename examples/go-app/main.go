@@ -1,10 +1,12 @@
 // Example Go web application using Hudl templates.
 //
 // Build the templates first (from project root):
-//   cargo run --bin hudlc -- examples -o examples/go-app/views.wasm
+//
+//	cargo run --bin hudlc -- examples -o examples/go-app/views.wasm
 //
 // Then run this app:
-//   cd examples/go-app && go run .
+//
+//	cd examples/go-app && go run .
 package main
 
 import (
@@ -73,9 +75,7 @@ func (app *App) handleHome(w http.ResponseWriter, r *http.Request) {
 
 	// Render the features section as content
 	features := mockdata.GetFeatures()
-	featuresHTML, err := app.views.Render("FeatureList", map[string]any{
-		"features": features,
-	})
+	featuresHTML, err := app.views.Render("FeatureList", features)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to render features: %v", err), 500)
 		return
@@ -95,17 +95,14 @@ func (app *App) handleHome(w http.ResponseWriter, r *http.Request) {
 
 // handleDashboard renders the admin dashboard.
 func (app *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	// Get dashboard data
 	dashData := mockdata.GetDashboardData()
 
-	// Render the dashboard content
 	dashboardHTML, err := app.views.Render("Dashboard", dashData)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to render dashboard: %v", err), 500)
 		return
 	}
 
-	// Wrap in layout
 	layoutData := mockdata.GetLayoutData("Dashboard - Hudl App", dashboardHTML, true)
 	html, err := app.views.Render("AppLayout", layoutData)
 	if err != nil {
@@ -121,22 +118,17 @@ func (app *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 func (app *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 	csrfToken := generateCSRFToken()
 
-	var formData mockdata.FormData
+	formData := mockdata.GetEmptyForm(csrfToken)
 	if r.Method == "POST" {
-		// Simulate form validation errors for demo
 		formData = mockdata.GetFormWithErrors(csrfToken)
-	} else {
-		formData = mockdata.GetEmptyForm(csrfToken)
 	}
 
-	// Render the registration form
 	formHTML, err := app.views.Render("RegistrationForm", formData)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to render form: %v", err), 500)
 		return
 	}
 
-	// Wrap in layout
 	layoutData := mockdata.GetLayoutData("Register - Hudl App", formHTML, false)
 	html, err := app.views.Render("AppLayout", layoutData)
 	if err != nil {
@@ -152,16 +144,12 @@ func (app *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 func (app *App) handleFeatures(w http.ResponseWriter, r *http.Request) {
 	features := mockdata.GetFeatures()
 
-	// Render the features section
-	featuresHTML, err := app.views.Render("FeatureList", map[string]any{
-		"features": features,
-	})
+	featuresHTML, err := app.views.Render("FeatureList", features)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to render features: %v", err), 500)
 		return
 	}
 
-	// Wrap in layout
 	layoutData := mockdata.GetLayoutData("Features - Hudl App", featuresHTML, false)
 	html, err := app.views.Render("AppLayout", layoutData)
 	if err != nil {

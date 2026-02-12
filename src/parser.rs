@@ -200,15 +200,26 @@ fn pre_parse(input: &str) -> String {
             }
             // Check if this is ~> binding shorthand (after element name)
             if i + 1 < chars.len() && chars[i + 1] == '>' {
-                // element~>signal -> element ~bind:signal
-                // Insert space before, then transform to ~bind:
-                result.push_str(" ~bind:");
+                // element~>signal -> element ~bind="signal"
+                // element~>signal~debounce:300ms -> element ~bind~debounce:300ms="signal"
                 i += 2; // skip ~>
-                // Collect the signal name (can include ~ for modifiers)
-                while i < chars.len() && is_tilde_attr_char(chars[i]) {
-                    result.push(chars[i]);
+                // Collect signal name (up to next ~ or whitespace)
+                let signal_start = i;
+                while i < chars.len() && chars[i] != '~' && !chars[i].is_whitespace() {
                     i += 1;
                 }
+                let signal_name: String = chars[signal_start..i].iter().collect();
+                // Collect optional modifiers (~debounce:300ms etc.)
+                let mut modifiers = String::new();
+                while i < chars.len() && chars[i] == '~' {
+                    let mod_start = i;
+                    i += 1; // skip ~
+                    while i < chars.len() && is_tilde_attr_char(chars[i]) {
+                        i += 1;
+                    }
+                    modifiers.push_str(&chars[mod_start..i].iter().collect::<String>());
+                }
+                result.push_str(&format!(" ~bind{}=\"{}\"", modifiers, signal_name));
                 continue;
             }
         }

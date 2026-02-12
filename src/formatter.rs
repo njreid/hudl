@@ -221,6 +221,58 @@ enum EntryContext {
     Property,
 }
 
+/// Extract binding info from a node's inline `~bind` property entries.
+/// Returns (signal_name, modifiers) if found.
+fn find_bind_entry(node: &KdlNode) -> Option<(String, Vec<String>)> {
+    for entry in node.entries() {
+        if let Some(name) = entry.name() {
+            let name_str = name.value();
+            if name_str == "~bind" || name_str.starts_with("~bind~") {
+                let signal = entry.value().as_string().unwrap_or_default().to_string();
+                let mods = if name_str.len() > 5 {
+                    // ~bind~debounce:300ms -> extract modifiers after "~bind"
+                    name_str[5..].split('~').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
+                } else {
+                    vec![]
+                };
+                return Some((signal, mods));
+            }
+        }
+    }
+    None
+}
+
+/// Extract binding info from a node's tilde block children.
+/// Returns (signal_name, modifiers) if found.
+fn find_bind_in_tilde_children(node: &KdlNode) -> Option<(String, Vec<String>)> {
+    if let Some(children) = node.children() {
+        for child in children.nodes() {
+            if child.name().value() == "~" {
+                if let Some(tilde_children) = child.children() {
+                    for tc in tilde_children.nodes() {
+                        let tc_name = tc.name().value();
+                        if tc_name == "bind" || tc_name.starts_with("bind~") {
+                            let signal = tc.entries().iter()
+                                .find(|e| e.name().is_none())
+                                .and_then(|e| e.value().as_string())
+                                .unwrap_or_default()
+                                .to_string();
+                            let mods = if tc_name.len() > 4 {
+                                // bind~debounce:300ms -> modifiers after "bind"
+                                tc_name[4..].split('~').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
+                            } else {
+                                vec![]
+                            };
+                            return Some((signal, mods));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 fn format_node(output: &mut String, node: &KdlNode, depth: usize, options: &FormatOptions, is_first_top_level: bool) {
     let indent = options.indent(depth);
 
@@ -259,20 +311,43 @@ fn format_node(output: &mut String, node: &KdlNode, depth: usize, options: &Form
         }
     }
 
+    // Check for binding shorthand to normalize
+    let bind_info = find_bind_entry(node).or_else(|| find_bind_in_tilde_children(node));
+
     // Format node name - apply inverse pre-parsing
     let name = inverse_preparse_name(node.name().value());
 
     output.push_str(&indent);
     output.push_str(&name);
 
+    // Append binding shorthand if found
+    if let Some((ref signal, ref mods)) = bind_info {
+        output.push_str("~>");
+        output.push_str(&signal);
+        for m in mods {
+            output.push('~');
+            output.push_str(m);
+        }
+    }
+
     // Determine context based on node type
     let node_name = node.name().value();
     let is_each = node_name == "each";
     let is_switch = node_name == "switch";
 
-    // Format entries (arguments and properties)
+    // Format entries (arguments and properties), skipping ~bind entries
     let mut arg_index = 0;
     for entry in node.entries() {
+        // Skip ~bind entries — already output as binding shorthand
+        if bind_info.is_some() {
+            if let Some(ename) = entry.name() {
+                let ename_str = ename.value();
+                if ename_str == "~bind" || ename_str.starts_with("~bind~") {
+                    continue;
+                }
+            }
+        }
+
         output.push(' ');
 
         let context = if entry.name().is_some() {
@@ -298,15 +373,64 @@ fn format_node(output: &mut String, node: &KdlNode, depth: usize, options: &Form
         format_entry(output, entry, context);
     }
 
-    // Format children
+    // Format children with tilde block combining
     if let Some(children) = node.children() {
-        if children.nodes().is_empty() {
-            output.push_str(" {}");
+        let originally_empty = children.nodes().is_empty();
+
+        // Separate tilde block children from non-tilde children
+        let mut tilde_child_nodes: Vec<&KdlNode> = Vec::new();
+        let mut other_children: Vec<&KdlNode> = Vec::new();
+        let mut has_tilde_blocks = false;
+
+        for child in children.nodes() {
+            if child.name().value() == "~" {
+                has_tilde_blocks = true;
+                if let Some(tilde_children) = child.children() {
+                    for tc in tilde_children.nodes() {
+                        // Skip bind nodes if we extracted them to shorthand
+                        if bind_info.is_some() {
+                            let tc_name = tc.name().value();
+                            if tc_name == "bind" || tc_name.starts_with("bind~") {
+                                continue;
+                            }
+                        }
+                        tilde_child_nodes.push(tc);
+                    }
+                }
+            } else {
+                other_children.push(child);
+            }
+        }
+
+        let has_tilde = !tilde_child_nodes.is_empty();
+        let has_other = !other_children.is_empty();
+
+        if !has_tilde && !has_other {
+            if originally_empty || !has_tilde_blocks {
+                // Truly empty children block, or no tilde blocks were extracted
+                output.push_str(" {}");
+            }
+            // else: all children were tilde blocks with only bind content — omit {}
         } else {
             output.push_str(" {\n");
-            for child in children.nodes() {
+
+            // Output combined tilde block first
+            if has_tilde {
+                let tilde_indent = options.indent(depth + 1);
+                output.push_str(&tilde_indent);
+                output.push_str("~ {\n");
+                for tilde_node in &tilde_child_nodes {
+                    format_node(output, tilde_node, depth + 2, options, false);
+                }
+                output.push_str(&tilde_indent);
+                output.push_str("}\n");
+            }
+
+            // Output non-tilde children
+            for child in &other_children {
                 format_node(output, child, depth + 1, options, false);
             }
+
             output.push_str(&indent);
             output.push('}');
         }
@@ -678,5 +802,127 @@ el {
         // Single-line comments should be preserved
         assert!(formatted.contains("// name: Test"));
         assert!(formatted.contains("// data: MyData"));
+    }
+
+    #[test]
+    fn test_format_combine_multiple_tilde_blocks() {
+        let input = r#"el {
+    div {
+        ~ {
+            on:click "handler()"
+        }
+        span "content"
+        ~ {
+            show "$isVisible"
+        }
+    }
+}"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(4, true);
+        let formatted = format(&doc, &options);
+        // Should combine into a single tilde block as first child
+        assert!(formatted.contains("div {\n        ~ {\n"), "Tilde block should be first child: {}", formatted);
+        assert!(formatted.contains("on:click"), "Should contain on:click: {}", formatted);
+        assert!(formatted.contains("show"), "Should contain show: {}", formatted);
+        // span should come after the tilde block
+        assert!(formatted.contains("}\n        span"), "span should follow tilde block: {}", formatted);
+        // Should have exactly one tilde block (one ~ {)
+        assert_eq!(formatted.matches("~ {").count(), 1, "Should have exactly one tilde block: {}", formatted);
+    }
+
+    #[test]
+    fn test_format_tilde_block_positioned_first() {
+        let input = r#"el {
+    div {
+        span "content"
+        ~ {
+            show "$isVisible"
+        }
+    }
+}"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(4, true);
+        let formatted = format(&doc, &options);
+        // Tilde block should be moved to first child position
+        assert!(formatted.contains("div {\n        ~ {\n"), "Tilde block should be first: {}", formatted);
+        assert!(formatted.contains("}\n        span"), "span should follow tilde block: {}", formatted);
+    }
+
+    #[test]
+    fn test_format_single_tilde_block_first_unchanged() {
+        let input = r#"el {
+    div {
+        ~ {
+            on:click "handler()"
+        }
+        span "content"
+    }
+}"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(4, true);
+        let formatted = format(&doc, &options);
+        // Already first - should remain unchanged
+        assert!(formatted.contains("div {\n        ~ {\n"), "Tilde block should be first: {}", formatted);
+        assert!(formatted.contains("}\n        span"), "span should follow tilde block: {}", formatted);
+    }
+
+    #[test]
+    fn test_format_bind_shorthand_from_inline() {
+        // Inline ~bind="username" should become ~>username
+        let input = r#"el { input~>username }"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(4, true);
+        let formatted = format(&doc, &options);
+        assert!(formatted.contains("input~>username"), "Should have binding shorthand: {}", formatted);
+        assert!(!formatted.contains("~bind"), "Should not contain ~bind: {}", formatted);
+    }
+
+    #[test]
+    fn test_format_bind_shorthand_with_modifiers() {
+        let input = r#"el { input~>searchQuery~debounce:300ms }"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(4, true);
+        let formatted = format(&doc, &options);
+        assert!(formatted.contains("input~>searchQuery~debounce:300ms"), "Should have shorthand with modifiers: {}", formatted);
+    }
+
+    #[test]
+    fn test_format_bind_from_tilde_block() {
+        // bind inside tilde block should become ~> shorthand
+        let input = r#"el {
+    input {
+        ~ {
+            bind username
+        }
+    }
+}"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(4, true);
+        let formatted = format(&doc, &options);
+        assert!(formatted.contains("input~>username"), "Should have binding shorthand: {}", formatted);
+        // Should not have an empty tilde block or children block
+        assert!(!formatted.contains("~ {"), "Should not have tilde block: {}", formatted);
+        assert!(!formatted.contains("{}"), "Should not have empty children: {}", formatted);
+    }
+
+    #[test]
+    fn test_format_bind_from_tilde_block_with_other_attrs() {
+        // bind inside tilde block with other attrs: bind becomes shorthand, others stay
+        let input = r#"el {
+    input {
+        ~ {
+            bind username
+            on:focus "doSomething()"
+        }
+    }
+}"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(4, true);
+        let formatted = format(&doc, &options);
+        assert!(formatted.contains("input~>username"), "Should have binding shorthand: {}", formatted);
+        assert!(formatted.contains("~ {"), "Should still have tilde block for other attrs: {}", formatted);
+        assert!(formatted.contains("on:focus"), "Should contain on:focus: {}", formatted);
+        // bind should not be in the tilde block
+        assert!(!formatted.contains("bind username"), "bind should not remain in tilde block: {}", formatted);
     }
 }
