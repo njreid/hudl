@@ -1,0 +1,27 @@
+/**
+message LayoutData {
+  string title = 1;
+  string content = 2; // HTML slot
+}
+*/
+
+// name: AppLayout
+// data: LayoutData
+el {
+  html lang="en" {
+    head {
+      meta charset="utf-8"
+      title `title`
+      _stylesheet "/style.css"
+    }
+    body {
+      header {
+        h1 "Hudl Project"
+      }
+      main `raw(content)`
+      footer {
+        p "Built with Hudl"
+      }
+    }
+  }
+}

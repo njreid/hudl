@@ -1,0 +1,14 @@
+/**
+message IndexData { string message = 1; }
+*/
+
+// name: HomePage
+// data: IndexData
+el {
+  AppLayout title="Home" {
+    div {
+      h2 "Welcome Nic!"
+      p `message`
+    }
+  }
+}

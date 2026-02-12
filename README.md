@@ -223,14 +223,6 @@ export HUDL_DEV_ADDR=localhost:9999
 
 When `HUDL_DEV` is enabled, the Go runtime will send render requests to the LSP over HTTP instead of executing the WASM binary. 
 
-### 3. Component Preview
+### 3. Live Reload
 
-The LSP also serves a browser-based preview environment. Once the dev server is running, visit:
-
-`http://localhost:9999`
-
-From here, you can:
-- Select any component in your project.
-- Edit mock data in **Protobuf Text Format** (`.textproto`).
-- See live renders of your components with hot-reload.
-- Debug **Datastar** signals and actions.
+The LSP dev server automatically injects a small live-reload script into rendered pages when in dev mode. This script uses Server-Sent Events (SSE) to listen for file changes and refreshes the browser automatically when a `.hudl` file is saved.

@@ -203,6 +203,8 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 - [x] File watching with `notify` crate (auto-reload on .hudl changes)
 - [x] Template caching in memory for instant rendering
 - [x] CLI: `hudl-lsp --dev-server --port PORT --watch DIR`
+- [x] SSE-based live reload notifications
+- [x] Injection of reload script into dev renders
 
 ### 8.3 Go Runtime Dev/Prod Switching
 
@@ -294,38 +296,14 @@ github.com/tetratelabs/wazero v1.6.0
 
 ---
 
-## Phase 9: Component Preview (New)
+## Phase 9: Live Reload (Simplified)
 
-**Goal:** Provide a live, interactive preview environment for Hudl components.
+**Goal:** Provide automatic browser refresh when templates change without a complex frontend.
 
-### 9.1 LSP Web Server Extensions
-
-- [x] Implement component listing API (`GET /api/components`)
-- [x] Implement proto schema reflection API (`GET /api/proto-schema/{component}`)
-- [x] Implement render preview API (`POST /api/render-preview`) using `textproto` data
-- [x] Implement WebSocket server for hot-reload notifications
-- [x] Implement static file server for project "public" assets and frontend UI
-
-### 9.2 Mock Data & Persistence
-
-- [x] Implement "Proto Message -> TextProto Skeleton" generator in Rust
-- [x] Implement file-based persistence (`*.preview.txtpb`)
-- [x] Support multiple auxiliary preview files per component in the dropdown
-- [x] Implement automatic creation of default preview files on selection
-
-### 9.3 Preview Frontend (Svelte 5)
-
-- [x] Scaffold Svelte 5 project with dark theme
-- [x] Implement component selection header (nav + dropdown)
-- [x] Integrate Monaco Editor for `.textproto` editing
-- [x] Implement preview panel with live rendering and hot-reload
-- [x] Implement Signal Debug sidebar (parses Datastar attributes from rendered HTML)
-
-### 9.4 Integration & Embedding
-
-- [x] Embed frontend assets into `hudl-lsp` binary using `rust-embed`
-- [ ] Add VS Code CodeLens or Command to "Open Hudl Preview"
-- [x] Implement dummy JS runtime in preview to log `@action` calls
+- [x] Implement `/events` SSE endpoint in LSP dev server
+- [x] Implement `RELOAD_SCRIPT` injection in `render_handler`
+- [x] Verify browser reloads on `.hudl` file save
+- [x] Remove obsolete Node.js dependencies and preview SPA
 
 ---
 
