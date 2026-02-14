@@ -54,7 +54,6 @@ Initializes a new Hudl-enabled Go web project in the current directory.
 /**
 message LayoutData {
     string title = 1;
-    string content = 2; // HTML slot
 }
 */
 // name: AppLayout
@@ -79,6 +78,10 @@ el {
 ### `views/index.hudl`
 
 ```kdl
+import {
+    "./layout"
+}
+
 /**
 message IndexData {
     string message = 1;

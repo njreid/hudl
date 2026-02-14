@@ -13,7 +13,6 @@ import (
 const LayoutTemplate = `/**
 message LayoutData {
     string title = 1;
-    string content = 2; // HTML slot
 }
 */
 // name: AppLayout
@@ -92,7 +91,9 @@ func main() {
 		}
 	}
 
-	rt, err := hudl.NewRuntime(context.Background(), wasmBytes)
+	rt, err := hudl.NewRuntime(context.Background(), hudl.Options{
+		WASMBytes: wasmBytes,
+	})
 	if err != nil {
 		log.Fatalf("Failed to initialize Hudl runtime: %v", err)
 	}
@@ -109,9 +110,8 @@ func main() {
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		// 1. Prepare data for the page (using generated proto bindings)
 		// For this scaffold, we use IndexData message.
-		data := &pb.SimpleData{
-			Title:       "Home",
-			Description: "Welcome to your new Hudl app!",
+		data := &pb.IndexData{
+			Message: "Welcome to your new Hudl app!",
 		}
 
 		// 2. Render the top-level component
