@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 /// Information about a variable in scope
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct VarInfo {
     /// The proto type of this variable
     pub proto_type: ProtoType,
@@ -21,6 +22,7 @@ pub struct VarInfo {
 
 /// Where a variable came from
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum VarSource {
     /// From the root data message
     DataField,
@@ -69,6 +71,7 @@ impl Scope {
     }
 
     /// Check if a variable exists in any scope
+    #[allow(dead_code)]
     pub fn contains(&self, name: &str) -> bool {
         self.lookup(name).is_some()
     }

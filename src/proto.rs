@@ -1316,54 +1316,6 @@ impl ProtoSchema {
         }
     }
 
-    fn decode_value_to_cel(&self, raw: &RawProtoValue, field_type: &ProtoType) -> CelValue {
-        match field_type {
-            ProtoType::String => match raw {
-                RawProtoValue::Bytes(b) => CelValue::String(Arc::new(String::from_utf8_lossy(b).to_string())),
-                _ => CelValue::Null,
-            },
-            ProtoType::Int32 | ProtoType::Int64 | ProtoType::Uint32 | ProtoType::Uint64 => match raw {
-                RawProtoValue::Varint(n) => CelValue::Int(*n as i64),
-                _ => CelValue::Null,
-            },
-            ProtoType::Sint32 | ProtoType::Sint64 => match raw {
-                RawProtoValue::Varint(n) => CelValue::Int(((*n >> 1) as i64) ^ -((*n & 1) as i64)),
-                _ => CelValue::Null,
-            },
-            ProtoType::Bool => match raw {
-                RawProtoValue::Varint(n) => CelValue::Bool(*n != 0),
-                _ => CelValue::Null,
-            },
-            ProtoType::Float => match raw {
-                RawProtoValue::Fixed32(n) => CelValue::Float(f32::from_bits(*n) as f64),
-                _ => CelValue::Null,
-            },
-            ProtoType::Double => match raw {
-                RawProtoValue::Fixed64(n) => CelValue::Float(f64::from_bits(*n)),
-                _ => CelValue::Null,
-            },
-            ProtoType::Message(name) => match raw {
-                RawProtoValue::Bytes(b) => self.decode_message_to_cel(b, name),
-                _ => CelValue::Null,
-            },
-            ProtoType::Enum(name) => match raw {
-                RawProtoValue::Varint(n) => {
-                    // Try to resolve enum value name
-                    if let Some(en) = self.get_enum(name) {
-                        for ev in &en.values {
-                            if ev.number == *n as i32 {
-                                return CelValue::String(Arc::new(ev.name.clone()));
-                            }
-                        }
-                    }
-                    CelValue::Int(*n as i64)
-                }
-                _ => CelValue::Null,
-            },
-            _ => self.decode_raw_to_cel(raw),
-        }
-    }
-
     fn decode_raw_to_cel(&self, raw: &RawProtoValue) -> CelValue {
         match raw {
             RawProtoValue::Varint(n) => CelValue::Int(*n as i64),

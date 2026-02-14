@@ -21,6 +21,7 @@ pub struct SwitchInfo {
 
 /// Enum definition extracted from proto block
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct EnumDef {
     pub name: String,
     pub values: Vec<String>,
@@ -173,6 +174,7 @@ fn check_enum_exhaustiveness(
 /// Check a switch statement for exhaustiveness against an enum.
 ///
 /// Returns a diagnostic if the switch is non-exhaustive (missing enum values).
+#[allow(dead_code)]
 pub fn check_switch_exhaustiveness(
     switch_info: &SwitchInfo,
     enum_def: Option<&EnumDef>,
@@ -307,6 +309,7 @@ fn extract_cases(lines: &[&str], start_line: usize) -> (Vec<String>, bool) {
 }
 
 /// Extract enum definitions from proto blocks in the content.
+#[allow(dead_code)]
 pub fn extract_enums(content: &str) -> Vec<EnumDef> {
     let mut enums = Vec::new();
 

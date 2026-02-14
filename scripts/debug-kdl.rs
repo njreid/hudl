@@ -7,9 +7,9 @@ fn main() {
     
     println!("Testing KDL parse for: {}", path);
     match parser::parse(&content) {
-        Ok(doc) => {
+        Ok(_doc) => {
             println!("KDL Parse Successful!");
-            // println!("{:#?}", doc);
+            // println!("{:#?}", _doc);
         },
         Err(e) => {
             println!("KDL Parse FAILED:");

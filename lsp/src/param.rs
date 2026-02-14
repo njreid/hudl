@@ -113,6 +113,7 @@ pub fn extract_metadata(content: &str) -> ViewMetadata {
 }
 
 /// Get the fully qualified type for a param definition
+#[allow(dead_code)]
 pub fn qualified_type(param: &ParamDef) -> String {
     param.type_path.clone()
 }
@@ -150,11 +151,13 @@ fn extract_proto_blocks(content: &str, metadata: &mut ViewMetadata) {
 }
 
 /// Get the fully qualified type name for the data type
+#[allow(dead_code)]
 pub fn resolve_data_type(metadata: &ViewMetadata) -> Option<String> {
     metadata.data_type.clone()
 }
 
 /// Check if a message type is defined inline
+#[allow(dead_code)]
 pub fn is_inline_type(metadata: &ViewMetadata, type_name: &str) -> bool {
     for def in &metadata.proto_definitions {
         if def.content.contains(&format!("message {}", type_name))

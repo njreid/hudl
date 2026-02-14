@@ -11,6 +11,7 @@ use crate::param;
 
 /// Information about a Hudl component
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ComponentInfo {
     pub name: String,
     pub data_type: Option<String>,

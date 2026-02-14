@@ -56,6 +56,7 @@ struct ValidateExprParams {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 struct FindImplsParams {
     #[serde(rename = "packagePath")]
     package_path: String,
@@ -77,6 +78,7 @@ struct InitializeResult {
 
 /// Result of expression validation
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ValidateExprResult {
     pub valid: bool,
     #[serde(rename = "resultType")]
@@ -86,6 +88,7 @@ pub struct ValidateExprResult {
 
 /// Result of finding interface implementations
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct FindImplsResult {
     pub implementations: Vec<String>,
 }
@@ -190,6 +193,7 @@ impl AnalyzerClient {
     /// # Arguments
     /// * `package_path` - Package containing the interface
     /// * `interface_name` - Name of the interface
+    #[allow(dead_code)]
     pub fn find_implementations(
         &mut self,
         package_path: &str,

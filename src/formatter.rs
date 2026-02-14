@@ -352,7 +352,6 @@ fn process_leading_comments(content: &str) -> String {
             // Check for end of proto block
             if trimmed.contains("*/") {
                 in_proto_block = false;
-                after_multiline = true;
 
                 // Extract any proto content before */ on the same line
                 if let Some(idx) = line.find("*/") {

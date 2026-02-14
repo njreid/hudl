@@ -4,8 +4,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use std::sync::Mutex;
 use std::collections::HashMap;
 use regex::Regex;
-use cel_interpreter::{Value, Program};
-use hudlc::cel::EvalContext;
+use cel_interpreter::Program;
 
 mod analyzer_client;
 mod component_registry;
