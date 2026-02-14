@@ -184,7 +184,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: hudl <command> [options]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
 		fmt.Fprintf(os.Stderr, "  install   Download and install hudlc and hudl-lsp binaries\n")
-		fmt.Fprintf(os.Stderr, "  init      Initialize a new Hudl-enabled Go project\n")
+		fmt.Fprintf(os.Stderr, "  init [name] Initialize a new Hudl-enabled Go project\n")
 		fmt.Fprintf(os.Stderr, "  dev       Run the project in development mode (hot-reload)\n")
 		fmt.Fprintf(os.Stderr, "  build     Build the project (compile templates to WASM)\n")
 		fmt.Fprintf(os.Stderr, "  version   Show version information\n")
@@ -205,7 +205,7 @@ func main() {
 	case "install":
 		runInstall()
 	case "init":
-		runInit()
+		runInit(flag.Arg(1))
 	case "dev":
 		runDev()
 	case "build":
@@ -298,11 +298,13 @@ func isPortOpen(addr string) bool {
 	return true
 }
 
-func runInit() {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Project name: ")
-	name, _ := reader.ReadString('\n')
-	name = strings.TrimSpace(name)
+func runInit(name string) {
+	if name == "" {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("Project name: ")
+		name, _ = reader.ReadString('\n')
+		name = strings.TrimSpace(name)
+	}
 
 	if name == "" {
 		fmt.Println("Error: project name is required")
