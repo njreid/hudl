@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const LayoutTemplate = `/**
@@ -39,18 +41,19 @@ const IndexTemplate = `import {
 }
 
 /**
-message IndexData {
-    string message = 1;
+message SimpleData {
+    string title = 1;
+    string description = 2;
 }
 */
 // name: HomePage
-// data: IndexData
+// data: SimpleData
 
 el {
-    AppLayout title="Home" {
+    AppLayout title=` + "`" + `title` + "`" + ` {
         div {
             h2 "Welcome!"
-            p ` + "`" + `message` + "`" + `
+            p ` + "`" + `description` + "`" + `
         }
     }
 }
@@ -109,9 +112,10 @@ func main() {
 	// --- Routes ---
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		// 1. Prepare data for the page (using generated proto bindings)
-		// For this scaffold, we use IndexData message.
-		data := &pb.IndexData{
-			Message: "Welcome to your new Hudl app!",
+		// For this scaffold, we use SimpleData message.
+		data := &pb.SimpleData{
+			Title:       "Home",
+			Description: "Welcome to your new Hudl app!",
 		}
 
 		// 2. Render the top-level component
@@ -246,16 +250,22 @@ func runBuild() {
 func runDev() {
 	fmt.Println("Starting Hudl development server...")
 
-	// 1. Try to start LSP dev server in background
-	lspCmd := exec.Command("hudl-lsp", "--dev-server")
-	// We don't pipe stdout to avoid clutter, but pipe stderr for errors
-	lspCmd.Stderr = os.Stderr
-	if err := lspCmd.Start(); err != nil {
-		fmt.Printf("Note: could not start hudl-lsp automatically: %v\n", err)
-		fmt.Println("If you already have hudl-lsp running in your editor, this is fine.")
+	// 1. Try to start LSP dev server in background if not already running
+	if !isPortOpen("localhost:9999") {
+		lspCmd := exec.Command("hudl-lsp", "--dev-server")
+		// We don't pipe stdout to avoid clutter, but pipe stderr for errors
+		lspCmd.Stderr = os.Stderr
+		if err := lspCmd.Start(); err != nil {
+			fmt.Printf("Note: could not start hudl-lsp automatically: %v\n", err)
+			fmt.Println("If you already have hudl-lsp running in your editor, this is fine.")
+		} else {
+			// Small delay to let it start
+			time.Sleep(500 * time.Millisecond)
+			fmt.Println("  Started hudl-lsp dev-server (port 9999)")
+			defer lspCmd.Process.Kill()
+		}
 	} else {
-		defer lspCmd.Process.Kill()
-		fmt.Println("  Started hudl-lsp dev-server (port 9999)")
+		fmt.Println("  hudl-lsp dev-server already running on port 9999")
 	}
 
 	// 2. Run Go app with HUDL_DEV=1
@@ -277,6 +287,15 @@ func runDev() {
 	if err := goCmd.Run(); err != nil {
 		fmt.Printf("\nGo application exited: %v\n", err)
 	}
+}
+
+func isPortOpen(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 func runInit() {

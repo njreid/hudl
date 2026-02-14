@@ -93,18 +93,19 @@ import {
 }
 
 /**
-message IndexData {
-    string message = 1;
+message SimpleData {
+    string title = 1;
+    string description = 2;
 }
 */
 // name: HomePage
-// data: IndexData
+// data: SimpleData
 
 el {
-    AppLayout title="Home" {
+    AppLayout title=`title` {
         div {
             h2 "Welcome!"
-            p `message`
+            p `description`
         }
     }
 }
