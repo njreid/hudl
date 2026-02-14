@@ -37,7 +37,7 @@ Initializes a new Hudl-enabled Go web project in the current directory.
 
 1. **Prompt**: Ask the user for the project name (e.g., "my-hudl-app").
 2. **Go Module**: Run `go mod init <project-name>`.
-3. **Dependencies**: Fetch `github.com/go-chi/chi/v5` and `github.com/njreid/hudl/pkg/hudl`.
+3. **Dependencies**: Fetch `github.com/go-chi/chi/v5` and `github.com/njreid/hudl/pkg/hudl`, then run `go mod tidy`.
 4. **Structure**:
     *   `main.go`: The web server entry point.
     *   `views/`: Directory for `.hudl` templates.
@@ -45,6 +45,16 @@ Initializes a new Hudl-enabled Go web project in the current directory.
     *   `views/index.hudl`: A home page component using the layout.
     *   `public/`: Directory for static assets (CSS, JS, images).
     *   `Makefile` (optional): Commands for building WASM and running the server.
+
+### `hudl dev`
+
+Starts the development environment:
+1. Starts the `hudl-lsp --dev-server` in the background (if not already running).
+2. Runs the Go application with `HUDL_DEV=1`.
+
+### `hudl build`
+
+Compiles all Hudl templates in the `views/` directory into a production-ready `views.wasm` file using `hudlc`.
 
 ## 3. Project Scaffold Templates
 

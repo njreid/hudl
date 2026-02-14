@@ -181,6 +181,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Commands:\n")
 		fmt.Fprintf(os.Stderr, "  install   Download and install hudlc and hudl-lsp binaries\n")
 		fmt.Fprintf(os.Stderr, "  init      Initialize a new Hudl-enabled Go project\n")
+		fmt.Fprintf(os.Stderr, "  dev       Run the project in development mode (hot-reload)\n")
+		fmt.Fprintf(os.Stderr, "  build     Build the project (compile templates to WASM)\n")
 		fmt.Fprintf(os.Stderr, "  version   Show version information\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
@@ -200,6 +202,10 @@ func main() {
 		runInstall()
 	case "init":
 		runInit()
+	case "dev":
+		runDev()
+	case "build":
+		runBuild()
 	case "version":
 		fmt.Println("hudl version 0.1.0")
 	default:
@@ -215,6 +221,62 @@ func runInstall() {
 	fmt.Println("Pre-compiled binaries are not yet available on GitHub Releases.")
 	fmt.Println("Please build from source for now:")
 	fmt.Println("  make build")
+}
+
+func runBuild() {
+	fmt.Println("Building Hudl templates...")
+
+	// Check if views directory exists
+	if _, err := os.Stat("views"); os.IsNotExist(err) {
+		fmt.Println("Error: 'views' directory not found. Are you in the project root?")
+		os.Exit(1)
+	}
+
+	cmd := exec.Command("hudlc", "views", "-o", "views.wasm")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error: failed to run hudlc: %v\n", err)
+		fmt.Println("Make sure hudlc is installed and in your PATH.")
+		os.Exit(1)
+	}
+	fmt.Println("Success: views.wasm generated.")
+}
+
+func runDev() {
+	fmt.Println("Starting Hudl development server...")
+
+	// 1. Try to start LSP dev server in background
+	lspCmd := exec.Command("hudl-lsp", "--dev-server")
+	// We don't pipe stdout to avoid clutter, but pipe stderr for errors
+	lspCmd.Stderr = os.Stderr
+	if err := lspCmd.Start(); err != nil {
+		fmt.Printf("Note: could not start hudl-lsp automatically: %v\n", err)
+		fmt.Println("If you already have hudl-lsp running in your editor, this is fine.")
+	} else {
+		defer lspCmd.Process.Kill()
+		fmt.Println("  Started hudl-lsp dev-server (port 9999)")
+	}
+
+	// 2. Run Go app with HUDL_DEV=1
+	fmt.Println("Starting Go application...")
+
+	// Check if we should run main.go or .
+	var goArgs []string
+	if _, err := os.Stat("main.go"); err == nil {
+		goArgs = []string{"run", "main.go"}
+	} else {
+		goArgs = []string{"run", "."}
+	}
+
+	goCmd := exec.Command("go", goArgs...)
+	goCmd.Env = append(os.Environ(), "HUDL_DEV=1")
+	goCmd.Stdout = os.Stdout
+	goCmd.Stderr = os.Stderr
+
+	if err := goCmd.Run(); err != nil {
+		fmt.Printf("\nGo application exited: %v\n", err)
+	}
 }
 
 func runInit() {
@@ -301,9 +363,16 @@ func runInit() {
 		}
 	}
 
+	// 6. Go mod tidy
+	fmt.Println("Tidying go.mod...")
+	cmdTidy := exec.Command("go", "mod", "tidy")
+	cmdTidy.Dir = name
+	if out, err := cmdTidy.CombinedOutput(); err != nil {
+		fmt.Printf("Error running go mod tidy: %v\nOutput: %s\n", err, string(out))
+	}
+
 	fmt.Printf("\nSuccess! Project '%s' initialized.\n", name)
 	fmt.Printf("To get started:\n\n")
 	fmt.Printf("  cd %s\n", name)
-	fmt.Printf("  # For development with hot-reload:\n")
-	fmt.Printf("  HUDL_DEV=1 go run main.go\n")
+	fmt.Printf("  hudl dev\n")
 }
