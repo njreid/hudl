@@ -65,7 +65,7 @@ pub fn render_with_values(
     schema: &ProtoSchema,
     data: CelValue,
     components: &HashMap<String, &Root>,
-    content_nodes: Option<&[Node]>,
+    content_html: Option<&str>,
 ) -> Result<String, RenderError> {
     let mut ctx = EvalContext::new();
 
@@ -87,7 +87,7 @@ pub fn render_with_values(
 
     // Render the AST
     let mut output = String::new();
-    render_nodes(&root.nodes, &ctx, schema, &mut output, components, content_nodes)?;
+    render_nodes(&root.nodes, &ctx, schema, &mut output, components, content_html)?;
 
     Ok(output)
 }
@@ -99,10 +99,10 @@ fn render_nodes(
     schema: &ProtoSchema,
     output: &mut String,
     components: &HashMap<String, &Root>,
-    content_nodes: Option<&[Node]>,
+    content_html: Option<&str>,
 ) -> Result<(), RenderError> {
     for node in nodes {
-        render_node(node, ctx, schema, output, components, content_nodes)?;
+        render_node(node, ctx, schema, output, components, content_html)?;
     }
     Ok(())
 }
@@ -114,15 +114,15 @@ fn render_node(
     schema: &ProtoSchema,
     output: &mut String,
     components: &HashMap<String, &Root>,
-    content_nodes: Option<&[Node]>,
+    content_html: Option<&str>,
 ) -> Result<(), RenderError> {
     match node {
-        Node::Element(el) => render_element(el, ctx, schema, output, components, content_nodes),
+        Node::Element(el) => render_element(el, ctx, schema, output, components, content_html),
         Node::Text(text) => render_text(&text.content, ctx, output),
-        Node::ControlFlow(cf) => render_control_flow(cf, ctx, schema, output, components, content_nodes),
+        Node::ControlFlow(cf) => render_control_flow(cf, ctx, schema, output, components, content_html),
         Node::ContentSlot => {
-            if let Some(nodes) = content_nodes {
-                render_nodes(nodes, ctx, schema, output, components, None)?;
+            if let Some(html) = content_html {
+                output.push_str(html);
             }
             Ok(())
         }
@@ -136,7 +136,7 @@ fn render_element(
     schema: &ProtoSchema,
     output: &mut String,
     components: &HashMap<String, &Root>,
-    content_nodes: Option<&[Node]>,
+    content_html: Option<&str>,
 ) -> Result<(), RenderError> {
     // Check if this is a component invocation
     if let Some(comp_root) = components.get(&el.tag) {
@@ -155,8 +155,12 @@ fn render_element(
             }
         }
 
-        // 2. Render the component's nodes, passing invocation children as content_nodes
-        return render_nodes(&comp_root.nodes, &comp_ctx, schema, output, components, Some(&el.children));
+        // 2. Pre-render children using the CURRENT context
+        let mut invocation_html = String::new();
+        render_nodes(&el.children, ctx, schema, &mut invocation_html, components, content_html)?;
+
+        // 3. Render the component's nodes, passing invocation HTML as content_html
+        return render_nodes(&comp_root.nodes, &comp_ctx, schema, output, components, Some(&invocation_html));
     }
 
     // Standard HTML element
@@ -230,7 +234,7 @@ fn render_element(
 
     if !is_void {
         // Render children
-        render_nodes(&el.children, ctx, schema, output, components, content_nodes)?;
+        render_nodes(&el.children, ctx, schema, output, components, content_html)?;
 
         // Closing tag
         output.push_str("</");
@@ -273,7 +277,7 @@ fn render_control_flow(
     schema: &ProtoSchema,
     output: &mut String,
     components: &HashMap<String, &Root>,
-    content_nodes: Option<&[Node]>,
+    content_html: Option<&str>,
 ) -> Result<(), RenderError> {
     match cf {
         ControlFlow::If {
@@ -283,9 +287,9 @@ fn render_control_flow(
         } => {
             let result = evaluate_cel(condition, ctx)?;
             if cel::is_truthy(&result) {
-                render_nodes(then_block, ctx, schema, output, components, content_nodes)?;
+                render_nodes(then_block, ctx, schema, output, components, content_html)?;
             } else if let Some(else_nodes) = else_block {
-                render_nodes(else_nodes, ctx, schema, output, components, content_nodes)?;
+                render_nodes(else_nodes, ctx, schema, output, components, content_html)?;
             }
         }
         ControlFlow::Each {
@@ -302,7 +306,7 @@ fn render_control_flow(
 
                     // If the item is a map, also add its fields directly
                     // (some templates access fields directly on the binding)
-                    render_nodes(body, &child_ctx, schema, output, components, content_nodes)?;
+                    render_nodes(body, &child_ctx, schema, output, components, content_html)?;
                 }
             }
         }
@@ -319,7 +323,7 @@ fn render_control_flow(
                 // Handle enum patterns (like ACTIVE) or string patterns (like "ACTIVE")
                 let clean_pattern = pattern.trim_matches('"');
                 if switch_str == clean_pattern {
-                    render_nodes(children, ctx, schema, output, components, content_nodes)?;
+                    render_nodes(children, ctx, schema, output, components, content_html)?;
                     matched = true;
                     break;
                 }
@@ -327,7 +331,7 @@ fn render_control_flow(
 
             if !matched {
                 if let Some(default_nodes) = default {
-                    render_nodes(default_nodes, ctx, schema, output, components, content_nodes)?;
+                    render_nodes(default_nodes, ctx, schema, output, components, content_html)?;
                 }
             }
         }
