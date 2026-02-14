@@ -1,31 +1,29 @@
 /**
 enum TransactionStatus {
-    STATUS_UNKNOWN = 0;
-    STATUS_ACTIVE = 1;
-    STATUS_PENDING = 2;
-    STATUS_FAILED = 3;
+  STATUS_UNKNOWN = 0;
+  STATUS_ACTIVE = 1;
+  STATUS_PENDING = 2;
+  STATUS_FAILED = 3;
 }
-
 message Transaction {
-    string id = 1;
-    string customer_name = 2;
-    string customer_email = 3;
-    string amount_formatted = 4;
-    TransactionStatus status = 5;
+  string id = 1;
+  string customer_name = 2;
+  string customer_email = 3;
+  string amount_formatted = 4;
+  TransactionStatus status = 5;
 }
-
 message DashboardData {
-    string revenue_formatted = 1;
-    int32 active_users = 2;
-    int32 system_load = 3;
-    repeated Transaction transactions = 4;
+  string revenue_formatted = 1;
+  int32 active_users = 2;
+  int32 system_load = 3;
+  repeated Transaction transactions = 4;
 }
 */
 
 // name: Dashboard
 // data: DashboardData
 el {
-  &dashboard-view {
+  #dashboard-view {
     h1.text-3xl.font-bold.mb-6 "Overview"
     .grid.grid-cols-1.md:grid-cols-3.gap-6.mb-8 {
       // Revenue Card

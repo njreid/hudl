@@ -12,7 +12,7 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 
 - [x] **Task 1.1**: Set up Rust workspace and `hudlc` crate.
 - [x] **Task 1.2**: Implement KDL v2 parsing using `kdl-rs`.
-- [x] **Task 1.3**: Implement AST transformation (handling `&id`, `.class` logic) in Rust.
+- [x] **Task 1.3**: Implement AST transformation (handling `#id`, `.class` logic) in Rust.
 - [x] **Task 1.4**: Implement Rust Code Generator (converting AST to Rust functions).
 - [x] **Task 1.5**: Implement WASM compilation pipeline (building the `.wasm`).
 - [x] **Task 1.6**: Create Go runtime wrapper using `wazero` to load and execute the WASM.

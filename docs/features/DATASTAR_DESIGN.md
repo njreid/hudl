@@ -530,7 +530,7 @@ Tilde attributes work with components. The tilde block is a child node that belo
 ```hudl
 // name: Button
 el {
-    button.btn { slot }
+    button.btn { #content }
 }
 ```
 

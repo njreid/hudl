@@ -42,7 +42,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	runtime, err := hudl.NewRuntime(ctx, wasmBytes)
+	runtime, err := hudl.NewRuntime(ctx, hudl.Options{WASMBytes: wasmBytes})
 	if err != nil {
 		log.Fatalf("Failed to initialize Hudl runtime: %v", err)
 	}

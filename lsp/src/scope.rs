@@ -140,8 +140,10 @@ pub fn build_scopes_from_content(
     let root_scope = build_root_scope(schema, data_type);
     let mut line_scopes: HashMap<u32, Scope> = HashMap::new();
 
+    let normalized = hudlc::parser::pre_parse(content);
+
     // Parse the KDL document
-    let doc = match hudlc::parser::parse(content) {
+    let doc = match normalized.parse::<kdl::KdlDocument>() {
         Ok(doc) => doc,
         Err(_) => return line_scopes,
     };
@@ -161,7 +163,7 @@ pub fn build_scopes_from_content(
         let line_num = content[..line].lines().count() as u32;
 
         // Check if this is an `each` node
-        if node_name == "each" {
+        if node_name == "__hudl_each" {
             let entries: Vec<_> = node.entries().into_iter().collect();
             if entries.len() >= 2 {
                 // First entry is the loop variable name
@@ -215,7 +217,7 @@ pub fn build_scopes_from_content(
 
     // Process all top-level nodes
     for node in doc.nodes() {
-        process_node(node, &root_scope, &mut line_scopes, schema, content);
+        process_node(node, &root_scope, &mut line_scopes, schema, &normalized);
     }
 
     // Store root scope for line 0

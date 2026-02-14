@@ -4,6 +4,8 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use std::sync::Mutex;
 use std::collections::HashMap;
 use regex::Regex;
+use cel_interpreter::{Value, Program};
+use hudlc::cel::EvalContext;
 
 mod analyzer_client;
 mod component_registry;
@@ -201,21 +203,19 @@ impl Backend {
                                     let scope = scope::get_scope_for_line(line_scopes, line_num);
                                     
                                     // Resolve the type of the expression
-                                    if let Ok(expr) = hudlc::expr::parse(&expr_str) {
-                                        let actual_type = infer_expr_type(&expr, &scope, schema);
-                                        
-                                        if let Some(actual) = actual_type {
-                                            if actual != *expected_type {
-                                                diagnostics.push(Diagnostic {
-                                                    range: Range {
-                                                        start: Position { line: line_num, character: 0 },
-                                                        end: Position { line: line_num, character: (name.len() + expr_str.len() + 3) as u32 },
-                                                    },
-                                                    severity: Some(DiagnosticSeverity::ERROR),
-                                                    message: format!("Type mismatch: Component '{}' expects '{}', but got '{}'.", name, expected_type, actual),
-                                                    ..Default::default()
-                                                });
-                                            }
+                                    if let Some(actual_type) = infer_expr_type(&expr_str, &scope, schema) {
+                                        // Compare CEL types for simple compatibility check
+                                        let actual_cel = actual_type.cel_type();
+                                        if actual_cel != *expected_type {
+                                            diagnostics.push(Diagnostic {
+                                                range: Range {
+                                                    start: Position { line: line_num, character: 0 },
+                                                    end: Position { line: line_num, character: (name.len() + expr_str.len() + 3) as u32 },
+                                                },
+                                                severity: Some(DiagnosticSeverity::ERROR),
+                                                message: format!("Type mismatch: Component '{}' expects '{}', but got '{}'.", name, expected_type, actual_cel),
+                                                ..Default::default()
+                                            });
                                         }
                                     }
                                 }
@@ -263,11 +263,11 @@ impl Backend {
                 let expr_str = &cap[1];
                 let match_start = cap.get(1).unwrap().start();
 
-                // Parse expression
-                match hudlc::expr::parse(expr_str) {
-                    Ok(expr) => {
+                // Compile expression using cel-interpreter
+                match Program::compile(expr_str) {
+                    Ok(program) => {
                         // Validate against scope
-                        if let Some(diag) = self.validate_expr(&expr, &line_scope, schema, line_num as u32, match_start as u32) {
+                        if let Some(diag) = self.validate_expr(&program, &line_scope, schema, line_num as u32, match_start as u32) {
                             diagnostics.push(diag);
                         }
                     }
@@ -278,7 +278,7 @@ impl Backend {
                                 end: Position { line: line_num as u32, character: (match_start + expr_str.len()) as u32 },
                             },
                             severity: Some(DiagnosticSeverity::ERROR),
-                            message: format!("Expression parse error: {}", e),
+                            message: format!("CEL parse error: {:?}", e),
                             ..Default::default()
                         });
                     }
@@ -291,129 +291,50 @@ impl Backend {
 
     fn validate_expr(
         &self,
-        expr: &hudlc::expr::Expr,
+        program: &Program,
         scope: &Scope,
         schema: &hudlc::proto::ProtoSchema,
         line: u32,
         col: u32,
     ) -> Option<Diagnostic> {
-        match expr {
-            hudlc::expr::Expr::Variable(path) => {
-                let parts: Vec<&str> = path.split('.').collect();
-                let root = parts[0];
+        // Check for unknown variables
+        for var in program.references().variables() {
+            let path = var.to_string();
+            let parts: Vec<&str> = path.split('.').collect();
+            let root = parts[0];
 
-                // Check if root variable is in scope
-                if let Some(var_info) = scope.lookup(root) {
-                    // Validate field path using proto schema
-                    if parts.len() > 1 {
-                        let field_path = parts[1..].join(".");
-
-                        // Get the message name from the variable's type
-                        if let hudlc::proto::ProtoType::Message(msg_name) = &var_info.proto_type {
-                            if let Err(e) = schema.resolve_field_path(msg_name, &field_path) {
-                                return Some(Diagnostic {
-                                    range: Range {
-                                        start: Position { line, character: col },
-                                        end: Position { line, character: col + path.len() as u32 },
-                                    },
-                                    severity: Some(DiagnosticSeverity::ERROR),
-                                    message: e,
-                                    ..Default::default()
-                                });
-                            }
+            if let Some(var_info) = scope.lookup(root) {
+                // If it's a dotted path, validate field existence
+                if parts.len() > 1 {
+                    let field_path = parts[1..].join(".");
+                    if let hudlc::proto::ProtoType::Message(msg_name) = &var_info.proto_type {
+                        if let Err(e) = schema.resolve_field_path(msg_name, &field_path) {
+                            return Some(Diagnostic {
+                                range: Range {
+                                    start: Position { line, character: col },
+                                    end: Position { line, character: col + path.len() as u32 },
+                                },
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: e,
+                                ..Default::default()
+                            });
                         }
                     }
-                } else {
-                    return Some(Diagnostic {
-                        range: Range {
-                            start: Position { line, character: col },
-                            end: Position { line, character: col + root.len() as u32 },
-                        },
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        message: format!("Unknown variable '{}'. Available: {}", root, scope.all_vars().join(", ")),
-                        ..Default::default()
-                    });
                 }
-                None
+            } else {
+                // Variable not in scope
+                return Some(Diagnostic {
+                    range: Range {
+                        start: Position { line, character: col },
+                        end: Position { line, character: col + root.len() as u32 },
+                    },
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    message: format!("Unknown variable '{}'. Available: {}", root, scope.all_vars().join(", ")),
+                    ..Default::default()
+                });
             }
-            hudlc::expr::Expr::Binary(left, _, right) => {
-                self.validate_expr(left, scope, schema, line, col)
-                    .or_else(|| self.validate_expr(right, scope, schema, line, col))
-            }
-            hudlc::expr::Expr::Unary(_, inner) => {
-                self.validate_expr(inner, scope, schema, line, col)
-            }
-            hudlc::expr::Expr::Call(name, args) => {
-                // Validate built-in functions
-                let known_funcs = ["len", "size", "has", "all", "exists", "filter", "map"];
-                if !known_funcs.contains(&name.as_str()) {
-                    return Some(Diagnostic {
-                        range: Range {
-                            start: Position { line, character: col },
-                            end: Position { line, character: col + name.len() as u32 },
-                        },
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        message: format!("Unknown function: {}", name),
-                        ..Default::default()
-                    });
-                }
-                // Validate arguments
-                for arg in args {
-                    if let Some(diag) = self.validate_expr(arg, scope, schema, line, col) {
-                        return Some(diag);
-                    }
-                }
-                None
-            }
-            hudlc::expr::Expr::MethodCall(receiver, method, args) => {
-                // Validate receiver
-                if let Some(diag) = self.validate_expr(receiver, scope, schema, line, col) {
-                    return Some(diag);
-                }
-
-                // CEL macros that introduce temp variables:
-                // items.filter(x, x.active) - x is temp var
-                // items.map(x, x.name) - x is temp var
-                // items.all(x, x > 0) - x is temp var
-                // items.exists(x, x > 0) - x is temp var
-                // items.exists_one(x, x > 0) - x is temp var
-                let cel_macros = ["filter", "map", "all", "exists", "exists_one"];
-
-                if cel_macros.contains(&method.as_str()) && args.len() >= 2 {
-                    // First arg is the temp variable name
-                    if let hudlc::expr::Expr::Variable(temp_var) = &args[0] {
-                        // Create a child scope with the temp variable
-                        let mut macro_scope = scope.child();
-                        macro_scope.add_var(
-                            temp_var.clone(),
-                            scope::VarInfo {
-                                proto_type: hudlc::proto::ProtoType::String, // Generic type
-                                repeated: false,
-                                source: scope::VarSource::CelLocal,
-                            },
-                        );
-
-                        // Validate remaining arguments with the temp var in scope
-                        for arg in args.iter().skip(1) {
-                            if let Some(diag) = self.validate_expr(arg, &macro_scope, schema, line, col) {
-                                return Some(diag);
-                            }
-                        }
-                        return None;
-                    }
-                }
-
-                // Regular method call - validate all arguments normally
-                for arg in args {
-                    if let Some(diag) = self.validate_expr(arg, scope, schema, line, col) {
-                        return Some(diag);
-                    }
-                }
-                // Note: We can't validate method existence without more type info
-                None
-            }
-            hudlc::expr::Expr::Literal(_) => None,
         }
+        None
     }
 
     async fn check_switch_exhaustiveness(
@@ -476,31 +397,27 @@ impl Backend {
 }
 
 fn infer_expr_type(
-    expr: &hudlc::expr::Expr,
+    expr_str: &str,
     scope: &Scope,
     schema: &hudlc::proto::ProtoSchema,
-) -> Option<String> {
-    match expr {
-        hudlc::expr::Expr::Variable(path) => {
-            let parts: Vec<&str> = path.split('.').collect();
-            let root = parts[0];
+) -> Option<hudlc::proto::ProtoType> {
+    // Simple path-based inference for now
+    let parts: Vec<&str> = expr_str.split('.').collect();
+    let root = parts[0];
 
-            if let Some(var_info) = scope.lookup(root) {
-                if parts.len() == 1 {
-                    return Some(var_info.proto_type.cel_type().to_string());
-                } else {
-                    let field_path = parts[1..].join(".");
-                    if let hudlc::proto::ProtoType::Message(msg_name) = &var_info.proto_type {
-                        if let Ok(field_type) = schema.resolve_field_path(msg_name, &field_path) {
-                            return Some(field_type.cel_type().to_string());
-                        }
-                    }
+    if let Some(var_info) = scope.lookup(root) {
+        if parts.len() == 1 {
+            return Some(var_info.proto_type.clone());
+        } else {
+            let field_path = parts[1..].join(".");
+            if let hudlc::proto::ProtoType::Message(msg_name) = &var_info.proto_type {
+                if let Ok(field_type) = schema.resolve_field_path(msg_name, &field_path) {
+                    return Some(field_type.clone());
                 }
             }
-            None
         }
-        _ => None, // Complex expressions not supported yet for type inference
     }
+    None
 }
 
 #[tower_lsp::async_trait]

@@ -47,24 +47,63 @@ impl FormatOptions {
 /// Format a KdlDocument back to Hudl syntax
 pub fn format(doc: &KdlDocument, options: &FormatOptions) -> String {
     let mut output = String::new();
+    let mut combined_protos = String::new();
+    let mut import_nodes = Vec::new();
+    let mut other_nodes = Vec::new();
 
-    // Preserve document-level leading content (proto blocks, comments)
+    // 1. Pre-scan document leading content for protos
     if let Some(fmt) = doc.format() {
-        let leading = &fmt.leading;
-        if !leading.is_empty() {
-            let processed = process_leading_comments(leading);
-            output.push_str(&processed);
-            if !processed.ends_with('\n') {
-                output.push('\n');
+        let (protos, others) = extract_protos(&fmt.leading);
+        combined_protos.push_str(&protos);
+        if !others.trim().is_empty() {
+            output.push_str(&others);
+            if !others.ends_with('\n') { output.push('\n'); }
+        }
+    }
+
+    // 2. Separate nodes and extract protos from their leading content
+    for node in doc.nodes() {
+        let name = node.name().value();
+        if name == "__hudl_import" {
+            import_nodes.push(node);
+        } else {
+            other_nodes.push(node);
+        }
+    }
+
+    // 3. Extract protos from all nodes (regardless of type)
+    for node in doc.nodes() {
+        if let Some(fmt) = node.format() {
+            let (protos, _others) = extract_protos(&fmt.leading);
+            if !protos.is_empty() {
+                combined_protos.push_str(&protos);
+                combined_protos.push('\n');
             }
         }
     }
 
-    for (i, node) in doc.nodes().iter().enumerate() {
-        format_node(&mut output, node, 0, options, i == 0);
+    // 4. Output combined and formatted protos
+    if !combined_protos.trim().is_empty() {
+        let formatted_protos = process_leading_comments(&combined_protos);
+        output.push_str(&formatted_protos);
+        if !formatted_protos.ends_with('\n') {
+            output.push('\n');
+        }
+        // Add an extra blank line to separate from nodes/comments that follow
+        output.push('\n');
     }
 
-    // Preserve document-level trailing content
+    // 5. Output imports
+    for node in import_nodes {
+        format_node_no_leading_protos(&mut output, node, 0, options);
+    }
+
+    // 6. Output other nodes
+    for node in other_nodes {
+        format_node_no_leading_protos(&mut output, node, 0, options);
+    }
+
+    // 7. Preserve document-level trailing content
     if let Some(fmt) = doc.format() {
         let trailing = &fmt.trailing;
         if !trailing.is_empty() && !trailing.chars().all(|c| c.is_whitespace()) {
@@ -73,6 +112,150 @@ pub fn format(doc: &KdlDocument, options: &FormatOptions) -> String {
     }
 
     output
+}
+
+/// Helper to extract proto blocks from a string of comments
+fn extract_protos(content: &str) -> (String, String) {
+    let mut protos = String::new();
+    let mut others = String::new();
+    let mut in_proto = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("/**") && !trimmed.starts_with("/***") {
+            in_proto = true;
+            protos.push_str(line);
+            protos.push('\n');
+            if trimmed.contains("*/") { in_proto = false; }
+        } else if in_proto {
+            protos.push_str(line);
+            protos.push('\n');
+            if trimmed.contains("*/") { in_proto = false; }
+        } else {
+            others.push_str(line);
+            others.push('\n');
+        }
+    }
+    (protos, others)
+}
+
+/// Variant of format_node that filters out proto blocks from leading comments
+fn format_node_no_leading_protos(output: &mut String, node: &KdlNode, depth: usize, options: &FormatOptions) {
+    let indent = options.indent(depth);
+
+    if let Some(fmt) = node.format() {
+        let (_protos, others) = extract_protos(&fmt.leading);
+        let trimmed_others = others.trim_start_matches(|c: char| c == ' ' || c == '\t');
+        if !trimmed_others.is_empty() {
+            for line in trimmed_others.lines() {
+                let line_trimmed = line.trim();
+                if !line_trimmed.is_empty() {
+                    output.push_str(&indent);
+                    output.push_str(line_trimmed);
+                    output.push('\n');
+                }
+            }
+        }
+    }
+
+    // The rest is same as format_node
+    let bind_info = find_bind_entry(node).or_else(|| find_bind_in_tilde_children(node));
+    let name = inverse_preparse_name(node.name().value());
+
+    output.push_str(&indent);
+    output.push_str(&name);
+
+    if let Some((ref signal, ref mods)) = bind_info {
+        output.push_str("~>");
+        output.push_str(&signal);
+        for m in mods {
+            output.push('~');
+            output.push_str(m);
+        }
+    }
+
+    let node_name = node.name().value();
+    let is_each = node_name == "each" || node_name == "__hudl_each";
+    let is_switch = node_name == "switch" || node_name == "__hudl_switch";
+
+    let mut arg_index = 0;
+    for entry in node.entries() {
+        if bind_info.is_some() {
+            if let Some(ename) = entry.name() {
+                let ename_str = ename.value();
+                if ename_str == "~bind" || ename_str.starts_with("~bind~") {
+                    continue;
+                }
+            }
+        }
+
+        output.push(' ');
+        let context = if entry.name().is_some() {
+            EntryContext::Property
+        } else if is_each {
+            let ctx = if arg_index == 0 { EntryContext::EachVarName } else { EntryContext::EachExpression };
+            arg_index += 1;
+            ctx
+        } else if is_switch && arg_index == 0 {
+            arg_index += 1;
+            EntryContext::SwitchExpression
+        } else {
+            arg_index += 1;
+            EntryContext::Content
+        };
+        format_entry(output, entry, context);
+    }
+
+    if let Some(children) = node.children() {
+        let originally_empty = children.nodes().is_empty();
+        let mut tilde_child_nodes: Vec<&KdlNode> = Vec::new();
+        let mut other_children: Vec<&KdlNode> = Vec::new();
+        let mut has_tilde_blocks = false;
+
+        for child in children.nodes() {
+            if child.name().value() == "~" {
+                has_tilde_blocks = true;
+                if let Some(tilde_children) = child.children() {
+                    for tc in tilde_children.nodes() {
+                        if bind_info.is_some() {
+                            let tc_name = tc.name().value();
+                            if tc_name == "bind" || tc_name.starts_with("bind~") { continue; }
+                        }
+                        tilde_child_nodes.push(tc);
+                    }
+                }
+            } else {
+                other_children.push(child);
+            }
+        }
+
+        let has_tilde = !tilde_child_nodes.is_empty();
+        let has_other = !other_children.is_empty();
+
+        if !has_tilde && !has_other {
+            if originally_empty || !has_tilde_blocks {
+                output.push_str(" {}");
+            }
+        } else {
+            output.push_str(" {\n");
+            if has_tilde {
+                let tilde_indent = options.indent(depth + 1);
+                output.push_str(&tilde_indent);
+                output.push_str("~ {\n");
+                for tilde_node in &tilde_child_nodes {
+                    format_node(output, tilde_node, depth + 2, options, false);
+                }
+                output.push_str(&tilde_indent);
+                output.push_str("}\n");
+            }
+            for child in &other_children {
+                format_node(output, child, depth + 1, options, false);
+            }
+            output.push_str(&indent);
+            output.push('}');
+        }
+    }
+    output.push('\n');
 }
 
 /// Format protobuf content using `clang-format`
@@ -89,7 +272,7 @@ fn format_proto_content(proto_content: &str) -> String {
 
     for clang_path in &clang_format_paths {
         let child = Command::new(clang_path)
-            .args(["--assume-filename=x.proto"])
+            .args(["--assume-filename=x.proto", "-style={ColumnLimit: 40}"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -141,6 +324,19 @@ fn process_leading_comments(content: &str) -> String {
             after_multiline = false;
             added_blank_after_multiline = false;
 
+            // Capture any proto content on the same line after /**
+            let rest = &line.trim_start()[3..];
+            if !rest.is_empty() {
+                if let Some(idx) = rest.find("*/") {
+                    // Single-line proto block handled later by in_proto_block logic
+                    proto_content.push_str(&rest[..idx]);
+                    proto_content.push('\n');
+                } else {
+                    proto_content.push_str(rest);
+                    proto_content.push('\n');
+                }
+            }
+
             // Check if it closes on the same line
             if trimmed.len() > 3 && trimmed[3..].contains("*/") {
                 // Single-line proto block - probably empty or very short
@@ -158,16 +354,48 @@ fn process_leading_comments(content: &str) -> String {
                 in_proto_block = false;
                 after_multiline = true;
 
+                // Extract any proto content before */ on the same line
+                if let Some(idx) = line.find("*/") {
+                    proto_content.push_str(&line[..idx]);
+                    proto_content.push('\n');
+                }
+
                 // Format the proto content
-                let formatted_proto = format_proto_content(&proto_content);
+                let formatted_proto = format_proto_content(proto_content.trim());
 
                 // Output the formatted proto block
                 result.push_str("/**\n");
-                for proto_line in formatted_proto.lines() {
-                    result.push_str(proto_line);
-                    result.push('\n');
+                let trimmed_proto = formatted_proto.trim();
+                
+                // If clang-format collapsed it to one line, try to re-expand it or just indent manually
+                if !trimmed_proto.contains('\n') && proto_content.trim().contains('\n') {
+                    // Fallback to manual indentation if clang-format collapsed it
+                    for line in proto_content.trim().lines() {
+                        let line_trimmed = line.trim();
+                        if !line_trimmed.is_empty() {
+                            if line_trimmed.starts_with('}') || line_trimmed.starts_with("//") {
+                                result.push_str(line_trimmed);
+                            } else if line_trimmed.ends_with('{') {
+                                result.push_str(line_trimmed);
+                            } else {
+                                result.push_str("  ");
+                                result.push_str(line_trimmed);
+                            }
+                            result.push('\n');
+                        }
+                    }
+                } else if !trimmed_proto.is_empty() {
+                    for proto_line in trimmed_proto.lines() {
+                        let trimmed_line = proto_line.trim_end();
+                        if !trimmed_line.is_empty() {
+                            result.push_str(trimmed_line);
+                            result.push('\n');
+                        }
+                    }
                 }
                 result.push_str("*/\n");
+                after_multiline = true;
+                added_blank_after_multiline = false;
             } else {
                 // Accumulate proto content
                 proto_content.push_str(line);
@@ -273,7 +501,7 @@ fn find_bind_in_tilde_children(node: &KdlNode) -> Option<(String, Vec<String>)> 
     None
 }
 
-fn format_node(output: &mut String, node: &KdlNode, depth: usize, options: &FormatOptions, is_first_top_level: bool) {
+fn format_node(output: &mut String, node: &KdlNode, depth: usize, options: &FormatOptions, _is_first_top_level: bool) {
     let indent = options.indent(depth);
 
     // Preserve leading comments for this node
@@ -282,20 +510,10 @@ fn format_node(output: &mut String, node: &KdlNode, depth: usize, options: &Form
         if !leading.is_empty() {
             let trimmed = leading.trim_start_matches(|c: char| c == ' ' || c == '\t');
             if !trimmed.is_empty() {
-                if is_first_top_level && depth == 0 {
-                    // First top-level node: process comments with proper spacing
+                if depth == 0 {
+                    // Top-level node: process comments with proper spacing and proto formatting
                     let processed = process_leading_comments(trimmed);
                     output.push_str(&processed);
-                } else if depth == 0 {
-                    // Other top-level nodes
-                    for line in trimmed.lines() {
-                        let line_trimmed = line.trim();
-                        if !line_trimmed.is_empty() {
-                            output.push_str(&indent);
-                            output.push_str(line_trimmed);
-                            output.push('\n');
-                        }
-                    }
                 } else {
                     // Nested nodes: just preserve comments with proper indentation
                     for line in trimmed.lines() {
@@ -332,8 +550,8 @@ fn format_node(output: &mut String, node: &KdlNode, depth: usize, options: &Form
 
     // Determine context based on node type
     let node_name = node.name().value();
-    let is_each = node_name == "each";
-    let is_switch = node_name == "switch";
+    let is_each = node_name == "each" || node_name == "__hudl_each";
+    let is_switch = node_name == "switch" || node_name == "__hudl_switch";
 
     // Format entries (arguments and properties), skipping ~bind entries
     let mut arg_index = 0;
@@ -469,9 +687,10 @@ fn format_value(output: &mut String, value: &KdlValue, context: EntryContext) {
                         // Already has backticks from pre-parser, output as-is
                         output.push_str(s);
                     } else {
-                        output.push('`');
+                        let bt = '`';
+                        output.push(bt);
                         output.push_str(s);
-                        output.push('`');
+                        output.push(bt);
                     }
                 }
                 EntryContext::Content => {
@@ -567,6 +786,15 @@ fn is_backtick_expression(s: &str) -> bool {
 
 /// Inverse pre-parse a node name back to Hudl syntax
 fn inverse_preparse_name(name: &str) -> String {
+    // Strip internal __hudl_ prefix
+    if let Some(stripped) = name.strip_prefix("__hudl_") {
+        return if stripped == "content" {
+            "#content".to_string()
+        } else {
+            stripped.to_string()
+        };
+    }
+
     // If the name is quoted and looks like a CSS selector, unquote it
     // The KDL parser already gives us the unquoted value, but we stored
     // selectors as quoted strings like "div#root.container"
@@ -583,15 +811,15 @@ fn inverse_preparse_name(name: &str) -> String {
 
 /// Check if a name looks like a CSS selector (should be displayed without quotes in Hudl)
 fn is_css_selector(name: &str) -> bool {
-    // CSS selectors have: tag names, #id, .class, &reference
-    // e.g., "div#root.container", ".my-class", "&my-id"
+    // CSS selectors have: tag names, #id, .class
+    // e.g., "div#root.container", ".my-class", "#my-id"
     if name.is_empty() {
         return false;
     }
 
-    // Must start with a letter, #, ., or &
+    // Must start with a letter, #, or .
     let first = name.chars().next().unwrap();
-    if !first.is_ascii_alphabetic() && first != '#' && first != '.' && first != '&' {
+    if !first.is_ascii_alphabetic() && first != '#' && first != '.' {
         return false;
     }
 
@@ -644,11 +872,12 @@ mod tests {
 
     #[test]
     fn test_format_backtick_expressions() {
-        let input = r#"el { h1 `title` }"#;
-        let doc = parse(input).unwrap();
+        let bt = '`';
+        let input = format!("el {{ h1 {}title{} }}", bt, bt);
+        let doc = parse(&input).unwrap();
         let options = FormatOptions::default();
         let formatted = format(&doc, &options);
-        assert!(formatted.contains("`title`"));
+        assert!(formatted.contains(&format!("{}title{}", bt, bt)));
     }
 
     #[test]
@@ -673,7 +902,6 @@ mod tests {
         assert!(is_css_selector("div#root.container"));
         assert!(is_css_selector(".my-class"));
         assert!(is_css_selector("#my-id"));
-        assert!(is_css_selector("&reference"));
         assert!(is_css_selector("hover:bg-blue-500"));
 
         assert!(!is_css_selector(""));
@@ -697,14 +925,15 @@ mod tests {
     #[test]
     fn test_format_each_loop() {
         // each <varname> <expression> - varname is bare, expression has backticks
-        let input = r#"el { each item `items` { li `item` } }"#;
-        let doc = parse(input).unwrap();
+        let bt = '`';
+        let input = format!("el {{ each item {}items{} {{ li {}item{} }} }}", bt, bt, bt, bt);
+        let doc = parse(&input).unwrap();
         let options = FormatOptions::new(2, true);
         let formatted = format(&doc, &options);
         // First arg (item) should be bare, second arg (items) should have backticks
-        assert!(formatted.contains("each item `items`"));
+        assert!(formatted.contains(&format!("each item {}items{}", bt, bt)));
         // Content should also have backticks
-        assert!(formatted.contains("li `item`"));
+        assert!(formatted.contains(&format!("li {}item{}", bt, bt)));
     }
 
     #[test]
@@ -721,18 +950,19 @@ mod tests {
     #[test]
     fn test_format_simple_hudl_content() {
         // Test formatting similar to simple.hudl
-        let input = r#"el {
-    div#root.container {
-        h1 `title`
-        p `description`
-        ul {
-            each feat `features` {
-                li `feat`
-            }
-        }
-    }
-}"#;
-        let doc = parse(input).unwrap();
+        let bt = '`';
+        let input = format!(r#"el {{
+    div#root.container {{
+        h1 {bt}title{bt}
+        p {bt}description{bt}
+        ul {{
+            each feat {bt}features{bt} {{
+                li {bt}feat{bt}
+            }}
+        }}
+    }}
+}}"#);
+        let doc = parse(&input).unwrap();
         let options = FormatOptions::new(2, true);
         let formatted = format(&doc, &options);
 
@@ -742,10 +972,10 @@ mod tests {
         assert!(formatted.contains("      each"));
 
         // Check backtick expressions are preserved
-        assert!(formatted.contains("`title`"));
-        assert!(formatted.contains("`description`"));
-        assert!(formatted.contains("each feat `features`"));
-        assert!(formatted.contains("`feat`"));
+        assert!(formatted.contains(&format!("{bt}title{bt}")));
+        assert!(formatted.contains(&format!("{bt}description{bt}")));
+        assert!(formatted.contains(&format!("each feat {bt}features{bt}")));
+        assert!(formatted.contains(&format!("{bt}feat{bt}")));
 
         // Check selector is unquoted
         assert!(formatted.contains("div#root.container"));
@@ -754,12 +984,31 @@ mod tests {
     #[test]
     fn test_format_preserves_string_literals() {
         // Quoted strings should stay quoted, not become backticks
+        let bt = '`';
         let input = r#"el { h1 "Hello World" }"#;
         let doc = parse(input).unwrap();
         let options = FormatOptions::default();
         let formatted = format(&doc, &options);
         assert!(formatted.contains("\"Hello World\""));
-        assert!(!formatted.contains("`Hello World`"));
+        assert!(!formatted.contains(&format!("{bt}Hello World{bt}")));
+    }
+
+    #[test]
+    fn test_format_backtick_unquoting() {
+        let bt = '`';
+        // Pure backtick expressions should be unquoted
+        let input = format!("el {{ span #\"{}item.label{}\"# }}", bt, bt);
+        let doc = parse(&input).unwrap();
+        let options = FormatOptions::default();
+        let formatted = format(&doc, &options);
+        assert!(formatted.contains(&format!("span {}item.label{}", bt, bt)));
+        assert!(!formatted.contains(&format!("\"{}item.label{}\"", bt, bt)));
+
+        // Mixed content should remain quoted
+        let input_mixed = format!("el {{ span \"Hello {}name{}!\" }}", bt, bt);
+        let doc_mixed = parse(&input_mixed).unwrap();
+        let formatted_mixed = format(&doc_mixed, &options);
+        assert!(formatted_mixed.contains(&format!("\"Hello {}name{}!\"", bt, bt)));
     }
 
     #[test]
@@ -802,6 +1051,24 @@ el {
         // Single-line comments should be preserved
         assert!(formatted.contains("// name: Test"));
         assert!(formatted.contains("// data: MyData"));
+    }
+
+    #[test]
+    fn test_format_proto_block_after_node() {
+        let input = r#"import { "./layout" }
+/**
+message SubData {
+string val = 1;
+}
+*/
+el { div "ok" }"#;
+        let doc = parse(input).unwrap();
+        let options = FormatOptions::new(2, true);
+        let formatted = format(&doc, &options);
+        
+        // Proto block should be formatted (indented by clang-format)
+        assert!(formatted.contains("  string val = 1;"));
+        assert!(formatted.contains("/**\nmessage SubData {"));
     }
 
     #[test]

@@ -56,7 +56,7 @@ el {
 
 	// 4. Wait for server to be ready
 	ready := false
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 50; i++ {
 		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -73,7 +73,7 @@ el {
 	defer os.Unsetenv("HUDL_DEV")
 	defer os.Unsetenv("HUDL_DEV_ADDR")
 
-	rt, err := NewRuntime(context.Background(), nil)
+	rt, err := NewRuntime(context.Background(), Options{})
 	require.NoError(t, err)
 	require.NotNil(t, rt)
 

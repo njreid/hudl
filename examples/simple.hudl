@@ -14,7 +14,7 @@ el {
     p `description`
     ul {
       each feat `features` {
-        li `feat`
+        li "my `feat`"
       }
     }
   }

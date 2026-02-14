@@ -1,0 +1,36 @@
+================================
+Highlighting: Backend vs Frontend
+================================
+
+div {
+    ~ {
+        let:user_id `user.id`;
+        on:click "@get('/api/`user.id`')";
+    };
+}
+
+---
+
+(document
+  (node
+    (identifier)
+    children: (node_children
+      (node
+        (datastar_node
+          (datastar_keyword)
+          children: (node_children
+            (node
+              (datastar_identifier)
+              (node_field
+                (value
+                  (backtick_expression
+                    (expression_content)))))
+            (node
+              (datastar_identifier)
+              (node_field
+                (value
+                  (string
+                    (string_fragment)
+                    (backtick_expression
+                      (expression_content))
+                    (string_fragment)))))))))))

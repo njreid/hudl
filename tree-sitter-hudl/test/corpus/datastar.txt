@@ -1,0 +1,95 @@
+================================
+Datastar Node and Properties
+================================
+
+div {
+    ~ {
+        let:count 0
+        on:click "$count++"
+    }
+    button ~show=$isVisible "Click"
+}
+
+---
+
+(document
+  (node
+    (identifier)
+    children: (node_children
+      (node
+        (datastar_node
+          (datastar_keyword)
+          children: (node_children
+            (node
+              (datastar_identifier)
+              (node_field
+                (value (number))))
+            (node
+              (datastar_identifier)
+              (node_field
+                (value (string (string_fragment))))))))
+      (node
+        (identifier)
+        (node_field
+          (prop
+            name: (datastar_identifier)
+            value: (value)))
+        (node_field
+          (value (string (string_fragment))))))))
+
+================================
+Backtick Expressions
+================================
+
+span `user.name`
+a href=`item.url` `item.label`
+
+---
+
+(document
+  (node
+    (identifier)
+    (node_field
+      (value (backtick_expression (expression_content)))))
+  (node
+    (identifier)
+    (node_field
+      (prop
+        name: (identifier)
+        value: (value (backtick_expression (expression_content)))))
+    (node_field
+      (value (backtick_expression (expression_content))))))
+
+================================
+Embedded Backticks in Datastar
+================================
+
+div {
+    ~ {
+        let:user_id `user.id`
+        on:click "@get('/users/`user.id`')"
+    }
+}
+
+---
+
+(document
+  (node
+    (identifier)
+    children: (node_children
+      (node
+        (datastar_node
+          (datastar_keyword)
+          children: (node_children
+            (node
+              (datastar_identifier)
+              (node_field
+                (value (backtick_expression (expression_content)))))
+            (node
+              (datastar_identifier)
+              (node_field
+                (value
+                  (string
+                    (string_fragment)
+                    (backtick_expression (expression_content))
+                    (string_fragment)))))))))))

@@ -782,7 +782,7 @@ fn test_lsp_css_selectors() {
     let doc_uri = "file:///tmp/selectors.hudl";
     let content = r#"
 el {
-    &main-container.flex.items-center {
+    #main-container.flex.items-center {
         h1.text-lg.font-bold "Title"
         .sidebar { nav "Menu" }
     }

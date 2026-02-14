@@ -56,7 +56,7 @@ el {
     html {
         head { title "My App" }
         body {
-            main "`raw(content)`"
+            main { #content }
         }
     }
 }
@@ -69,7 +69,7 @@ Use the `import` node at the top of your file to bring in components from other 
 ```hudl
 // views/index.hudl
 import {
-    ./layout
+    "./layout"
 }
 
 // name: HomePage

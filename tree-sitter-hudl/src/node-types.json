@@ -25,6 +25,52 @@
     "fields": {}
   },
   {
+    "type": "datastar_node",
+    "named": true,
+    "fields": {
+      "children": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "node_children",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "datastar_keyword",
+          "named": true
+        },
+        {
+          "type": "multi_line_comment",
+          "named": true
+        },
+        {
+          "type": "node_comment",
+          "named": true
+        },
+        {
+          "type": "node_field",
+          "named": true
+        },
+        {
+          "type": "single_line_comment",
+          "named": true
+        },
+        {
+          "type": "type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "decimal",
     "named": true,
     "fields": {}
@@ -170,6 +216,14 @@
       "multiple": true,
       "required": true,
       "types": [
+        {
+          "type": "datastar_identifier",
+          "named": true
+        },
+        {
+          "type": "datastar_node",
+          "named": true
+        },
         {
           "type": "each_node",
           "named": true
@@ -327,20 +381,31 @@
   {
     "type": "prop",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "value",
-          "named": true
-        }
-      ]
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "datastar_identifier",
+            "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "value",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -368,26 +433,19 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
-      "required": false,
-      "types": [
-        {
-          "type": "string_fragment",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "string_fragment",
-    "named": true,
-    "fields": {},
-    "children": {
       "multiple": true,
       "required": false,
       "types": [
         {
+          "type": "backtick_expression",
+          "named": true
+        },
+        {
           "type": "escape",
+          "named": true
+        },
+        {
+          "type": "string_fragment",
           "named": true
         }
       ]
@@ -590,6 +648,14 @@
     "named": false
   },
   {
+    "type": "datastar_identifier",
+    "named": true
+  },
+  {
+    "type": "datastar_keyword",
+    "named": true
+  },
+  {
     "type": "date",
     "named": false
   },
@@ -713,6 +779,10 @@
   {
     "type": "regex",
     "named": false
+  },
+  {
+    "type": "string_fragment",
+    "named": true
   },
   {
     "type": "time",

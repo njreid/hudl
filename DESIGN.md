@@ -78,7 +78,7 @@ flowchart LR
 
     subgraph "Phase 2: Transform"
         E["AST Builder"]
-        F["Selector Expansion<br/>(&id, .class)"]
+        F["Selector Expansion<br/>(#id, .class)"]
         G["CEL Extraction"]
     end
 
@@ -558,7 +558,7 @@ Hudl supports Emmet-style shortcuts:
 | `div.foo` | `<div class="foo">` |
 | `div.foo.bar` | `<div class="foo bar">` |
 | `div#main` | `<div id="main">` |
-| `&my-id` | `<div id="my-id">` |
+| #my-id | `<div id="my-id">` |
 | `.my-class` | `<div class="my-class">` |
 | `div.foo#bar` | `<div class="foo" id="bar">` |
 
@@ -940,7 +940,7 @@ element_node = tag_expr attributes? content?
 
 content     = cel_expr | string | "{" node* "}"
 
-tag_expr    = (tag | "&" id | "." class) ("." class | "#" id)*
+tag_expr    = (tag | "#" id | "." class) ("." class | "#" id)*
 
 attributes  = (identifier "=" attr_value)*
 attr_value  = cel_expr | string | bare_word

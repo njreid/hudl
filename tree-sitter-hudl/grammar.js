@@ -1,6 +1,6 @@
 /**
  * @file Hudl grammar for tree-sitter (forked from KDL)
- * @author Forked from Amaan Qureshi's KDL grammar
+ * @author Forked from Amaan Qriezmann's KDL grammar
  * @license MIT
  * @see {@link https://kdl.dev|KDL website}
  *
@@ -8,6 +8,7 @@
  * - Backtick expressions for CEL: `title`, `user.name`
  * - CSS selector shorthand: div#root.container
  * - Proto blocks: /** ... *\/
+ * - Datastar integration: ~ { ... } and ~on:click="..."
  */
 
 // deno-lint-ignore-file no-control-regex
@@ -16,18 +17,6 @@
 /* eslint-disable-next-line spaced-comment */
 /// <reference types="tree-sitter-cli/dsl" />
 // @ts-check
-
-// Hudl keywords for control flow
-const HUDL_KEYWORDS = [
-  'el',
-  'if',
-  'else',
-  'each',
-  'switch',
-  'case',
-  'default',
-  'import',
-];
 
 const ANNOTATION_BUILTINS = [
   'i8', 'i16', 'i32', 'i64',
@@ -55,6 +44,7 @@ module.exports = grammar({
     [$._regular_node, $._node_space],
     [$.each_node, $._node_space],
     [$.switch_node, $._node_space],
+    [$.datastar_node, $._node_space],
   ],
 
   externals: $ => [
@@ -96,6 +86,7 @@ module.exports = grammar({
       choice(
         $.each_node,
         $.switch_node,
+        $.datastar_node,
         $._regular_node,
       ),
     ),
@@ -126,12 +117,24 @@ module.exports = grammar({
       $._node_terminator,
     ),
 
+    // Datastar block node: ~ { ... }
+    datastar_node: $ => seq(
+      alias(optional(seq('/-', repeat($._node_space))), $.node_comment),
+      optional($.type),
+      alias('~', $.datastar_keyword),
+      repeat(seq(repeat1($._node_space), $.node_field)),
+      optional(seq(repeat($._node_space), field('children', $.node_children), repeat($._ws))),
+      repeat($._node_space),
+      $._node_terminator,
+    ),
+
     // Regular node (non-special keywords)
     _regular_node: $ => seq(
       alias(optional(seq('/-', repeat($._node_space))), $.node_comment),
       optional($.type),
       choice(
         alias(choice('el', 'if', 'else', 'case', 'default', 'import'), $.hudl_keyword),
+        alias($._datastar_identifier, $.datastar_identifier),
         $.identifier,
       ),
       repeat(seq(repeat1($._node_space), $.node_field)),
@@ -140,7 +143,7 @@ module.exports = grammar({
       $._node_terminator,
     ),
 
-    // Hudl keywords (not including 'each' and 'switch' which have special syntax)
+    // Hudl keywords (not including 'each', 'switch', '~' which have special syntax)
     hudl_keyword: _ => choice('el', 'if', 'else', 'case', 'default', 'import'),
 
     node_field: $ => choice($._node_field_comment, $._node_field),
@@ -178,6 +181,22 @@ module.exports = grammar({
       '`',
     ),
 
+    _datastar_identifier: _ => token(
+      prec(2, choice(
+        seq(
+          '~',
+          /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}_~!@#\$%\^&\*.:'\|\?&&[^\s\d\/(){}<>;\[\]=,"`]]/,
+          /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\/(){}<>;\[\]=,"`]]*/,
+        ),
+        // Known Datastar attributes when used as node names (inside ~ block)
+        choice(
+          'show', 'text', 'persist', 'ref', 'teleport', 'scrollIntoView', 'bind',
+          seq(choice('let', 'on', 'class'), ':', /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\/(){}<>;\[\]=,"`]]*/),
+          seq('.', /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\/(){}<>;\[\]=,"`]]+/),
+        ),
+      )),
+    ),
+
     _bare_identifier: $ =>
       choice(
         $._normal_bare_identifier,
@@ -205,13 +224,25 @@ module.exports = grammar({
 
     keyword: $ => choice($.boolean, 'null'),
     annotation_type: _ => choice(...ANNOTATION_BUILTINS),
-    prop: $ => seq($.identifier, '=', $.value),
+    prop: $ => seq(
+      field('name', choice(alias($._datastar_identifier, $.datastar_identifier), $.identifier)),
+      '=',
+      field('value', $.value),
+    ),
     value: $ => seq(optional($.type), choice($.string, $.number, $.keyword, $.backtick_expression, $._bare_identifier)),
     type: $ => seq('(', choice($.identifier, $.annotation_type), ')'),
 
     // String
     string: $ => choice($._raw_string, $._escaped_string),
-    _escaped_string: $ => seq('"', alias(repeat(choice($.escape, /[^"]/)), $.string_fragment), '"'),
+    _escaped_string: $ => seq(
+      '"',
+      repeat(choice(
+        $.escape,
+        $.backtick_expression,
+        alias(/[^"\\`]+/, $.string_fragment),
+      )),
+      '"',
+    ),
     _character: $ => choice($.escape, /[^"]/),
     escape: _ =>
       token.immediate(/\\\\|\\"|\\\/|\\b|\\f|\\n|\\r|\\t|\\u\{[0-9a-fA-F]{1,6}\}/),

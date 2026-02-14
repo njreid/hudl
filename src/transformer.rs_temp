@@ -1,0 +1,128 @@
+fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
+    let mut result = Vec::new();
+    let mut iter = nodes.iter().peekable();
+
+    while let Some(node) = iter.next() {
+        let name = node.name().value();
+        match name {
+            "if" => {
+                let condition = node.entries().get(0)
+                    .and_then(|e| e.value().as_string())
+                    .ok_or("if node missing condition")?
+                    .to_string();
+                
+                let clean_cond = condition.trim_matches('`').to_string();
+
+                let then_block = if let Some(children) = node.children() {
+                    transform_block(children.nodes())?
+                } else {
+                    Vec::new()
+                };
+
+                let mut else_block = None;
+                let mut has_else = false;
+                if let Some(next_node) = iter.peek() {
+                    if next_node.name().value() == "else" {
+                        has_else = true;
+                    }
+                }
+
+                if has_else {
+                    let next_node = iter.next().unwrap(); // consume else
+                    if let Some(children) = next_node.children() {
+                        else_block = Some(transform_block(children.nodes())?);
+                    }
+                }
+
+                result.push(Node::ControlFlow(ControlFlow::If {
+                    condition: clean_cond,
+                    then_block,
+                    else_block,
+                }));
+            }
+            "each" => {
+                // New syntax: each binding `iterable` { ... }
+                // Two positional arguments: binding name and CEL expression
+                let args: Vec<String> = node.entries().iter()
+                    .filter_map(|e| if e.name().is_none() { e.value().as_string().map(|s| s.to_string()) } else { None })
+                    .collect();
+
+                if args.len() != 2 {
+                    return Err("each expects 2 arguments: binding `iterable`".to_string());
+                }
+
+                let binding = args[0].clone();
+                let iterable = args[1].trim_matches('`').to_string();
+
+                let body = if let Some(children) = node.children() {
+                    transform_block(children.nodes())?
+                } else {
+                    Vec::new()
+                };
+
+                result.push(Node::ControlFlow(ControlFlow::Each {
+                    binding,
+                    iterable,
+                    body,
+                }));
+            }
+            "switch" => {
+                let expr = node.entries().get(0)
+                    .and_then(|e| e.value().as_string())
+                    .ok_or("switch node missing expression")?
+                    .trim_matches('`')
+                    .to_string();
+
+                let mut cases = Vec::new();
+                let mut default = None;
+
+                if let Some(children) = node.children() {
+                    for child in children.nodes() {
+                        match child.name().value() {
+                            "case" => {
+                                // Pattern can be a bare identifier (enum value) or string
+                                let pattern = child.entries().get(0)
+                                    .and_then(|e| e.value().as_string())
+                                    .ok_or("case missing pattern")?
+                                    .to_string();
+
+                                let case_children = if let Some(block) = child.children() {
+                                    transform_block(block.nodes())?
+                                } else {
+                                    Vec::new()
+                                };
+
+                                cases.push(SwitchCase(pattern, case_children));
+                            }
+                            "default" => {
+                                let def_children = if let Some(block) = child.children() {
+                                    transform_block(block.nodes())?
+                                } else {
+                                    Vec::new()
+                                };
+                                default = Some(def_children);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                result.push(Node::ControlFlow(ControlFlow::Switch {
+                    expr,
+                    cases,
+                    default,
+                }));
+            }
+            "else" => {
+                return Err("Unexpected 'else' without matching 'if'".to_string());
+            }
+            "#content" => {
+                result.push(Node::ContentSlot);
+            }
+            _ => {
+                result.push(transform_node(node)?);
+            }
+        }
+    }
+    Ok(result)
+}

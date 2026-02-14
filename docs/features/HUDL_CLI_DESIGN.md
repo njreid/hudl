@@ -69,7 +69,7 @@ el {
         }
         body {
             header { h1 "Hudl Project" }
-            main "`raw(content)`"
+            main { #content }
             footer { p "Built with Hudl" }
         }
     }

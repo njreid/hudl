@@ -1,6 +1,7 @@
 use hudlc::parser;
 use hudlc::transformer;
-use hudlc::codegen;
+use hudlc::codegen_cel;
+use hudlc::proto::ProtoSchema;
 
 #[test]
 fn test_basic_element_transformation() {
@@ -24,8 +25,8 @@ el {
 fn test_shorthand_selectors() {
     let input = r#"
 el {
-    &main.container.fluid {
-        h1 "Title"
+    div#main.container {
+        span.text-bold "Selectors"
     }
 }
     "#;
@@ -33,40 +34,43 @@ el {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    let div = root.nodes[0].as_element().unwrap();
-    assert_eq!(div.tag, "div");
-    assert_eq!(div.id, Some("main".to_string()));
-    assert_eq!(div.classes, vec!["container", "fluid"]);
+    let el = root.nodes[0].as_element().unwrap();
+    assert_eq!(el.tag, "div");
+    assert_eq!(el.id, Some("main".to_string()));
+    assert_eq!(el.classes, vec!["container".to_string()]);
+
+    let span = el.children[0].as_element().unwrap();
+    assert_eq!(span.tag, "span");
+    assert_eq!(span.classes, vec!["text-bold".to_string()]);
 }
 
 #[test]
 fn test_attributes() {
     let input = r#"
 el {
-    a href="/login" target="_blank" "Login"
+    input type=text name=username placeholder="Enter username"
 }
     "#;
 
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    let a = root.nodes[0].as_element().unwrap();
-    assert_eq!(a.tag, "a");
-    assert_eq!(a.attributes.get("href"), Some(&"/login".to_string()));
-    assert_eq!(a.attributes.get("target"), Some(&"_blank".to_string()));
+    let el = root.nodes[0].as_element().unwrap();
+    assert_eq!(el.attributes.get("type").unwrap(), "text");
+    assert_eq!(el.attributes.get("name").unwrap(), "username");
+    assert_eq!(el.attributes.get("placeholder").unwrap(), "Enter username");
 }
 
 #[test]
 fn test_element_style_transformation() {
     let input = r#"
 el {
-    button {
+    div {
         style {
-            background-color "red"
-            color "white"
-            font-weight "bold"
+            color "red"
+            margin-top 10px
         }
-        "CANCEL"
+        "Styled div"
     }
 }
     "#;
@@ -74,25 +78,19 @@ el {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    // Check that the button element has styles
-    let button = root.nodes[0].as_element().expect("Expected element");
-    assert_eq!(button.tag, "button");
-    assert_eq!(button.styles.len(), 3);
-
-    // Check style properties
-    assert!(button.styles.iter().any(|(k, v)| k == "background-color" && v == "red"));
-    assert!(button.styles.iter().any(|(k, v)| k == "color" && v == "white"));
-    assert!(button.styles.iter().any(|(k, v)| k == "font-weight" && v == "bold"));
+    let el = root.nodes[0].as_element().unwrap();
+    assert_eq!(el.styles.len(), 2);
+    assert_eq!(el.styles[0], ("color".to_string(), "red".to_string()));
+    assert_eq!(el.styles[1], ("margin-top".to_string(), "10px".to_string()));
 }
 
 #[test]
 fn test_scoped_css_transformation() {
-    // Legacy test for root-level css block (still supported)
     let input = r#"
 el {
     css {
-        &header { margin "_0"; }
-        .btn { width "_10px"; }
+        .card { background "white"; }
+        #header { border-bottom "1px solid black"; }
     }
 }
     "#;
@@ -100,27 +98,17 @@ el {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    assert!(root.css.is_some());
-    let css = root.css.as_ref().unwrap();
-
-    // Check if &header became #header
-    assert!(css.contains("#header"));
-    // Check if .btn was preserved
-    assert!(css.contains(".btn"));
-    // Check numeric value conversion (_0 -> 0, _10px -> 10px)
-    assert!(css.contains("margin: 0"));
-    assert!(css.contains("width: 10px"));
+    let css = root.css.expect("CSS should be extracted");
+    assert!(css.contains(".card { background: white; }"));
+    assert!(css.contains("#header { border-bottom: 1px solid black; }"));
 }
 
 #[test]
 fn test_control_flow_if_with_cel() {
-    // New syntax: backticks for CEL expressions
     let input = r#"
 el {
-    if "`is_visible`" {
-        p "Visible"
-    } else {
-        p "Hidden"
+    if `user.is_admin` {
+        div "Admin Panel"
     }
 }
     "#;
@@ -128,24 +116,20 @@ el {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    let if_node = root.nodes[0].as_control_flow().expect("Should be control flow");
-    match if_node {
-        hudlc::ast::ControlFlow::If { condition, then_block, else_block } => {
-            assert_eq!(condition, "is_visible");
-            assert_eq!(then_block.len(), 1);
-            assert!(else_block.is_some());
-        },
-        _ => panic!("Expected If node"),
+    let cf = root.nodes[0].as_control_flow().expect("Should be control flow");
+    if let hudlc::ast::ControlFlow::If { condition, .. } = cf {
+        assert_eq!(condition, "user.is_admin");
+    } else {
+        panic!("Expected If node");
     }
 }
 
 #[test]
 fn test_control_flow_each_with_cel() {
-    // New syntax: each binding `cel_expression`
     let input = r#"
 el {
-    each item "`items`" {
-        li "`item.name`"
+    each item `users` {
+        li `item.name`
     }
 }
     "#;
@@ -153,31 +137,26 @@ el {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    let each_node = root.nodes[0].as_control_flow().expect("Should be control flow");
-    match each_node {
-        hudlc::ast::ControlFlow::Each { binding, iterable, body } => {
-            assert_eq!(binding, "item");
-            assert_eq!(iterable, "items");
-            assert_eq!(body.len(), 1);
-        },
-        _ => panic!("Expected Each node"),
+    let cf = root.nodes[0].as_control_flow().expect("Should be control flow");
+    if let hudlc::ast::ControlFlow::Each { binding, iterable, .. } = cf {
+        assert_eq!(binding, "item");
+        assert_eq!(iterable, "users");
+    } else {
+        panic!("Expected Each node");
     }
 }
 
 #[test]
-fn test_control_flow_switch_with_enum() {
-    // New syntax: switch with enum values as bare identifiers
+fn test_transform_nested_if_else() {
     let input = r#"
 el {
-    switch "`status`" {
-        case STATUS_ACTIVE {
-            span "Active"
-        }
-        case STATUS_PENDING {
-            span "Pending"
-        }
-        default {
-            span "Unknown"
+    if `a` {
+        "then"
+    } else {
+        if `b` {
+            "else if"
+        } else {
+            "else"
         }
     }
 }
@@ -186,17 +165,31 @@ el {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    let switch_node = root.nodes[0].as_control_flow().expect("Should be control flow");
-    match switch_node {
-        hudlc::ast::ControlFlow::Switch { expr, cases, default } => {
-            assert_eq!(expr, "status");
-            assert_eq!(cases.len(), 2);
-            assert_eq!(cases[0].0, "STATUS_ACTIVE");
-            assert_eq!(cases[1].0, "STATUS_PENDING");
-            assert!(default.is_some());
-        },
-        _ => panic!("Expected Switch node"),
+    assert_eq!(root.nodes.len(), 1);
+    let cf = root.nodes[0].as_control_flow().unwrap();
+    if let hudlc::ast::ControlFlow::If { else_block, .. } = cf {
+        let else_nodes = else_block.as_ref().unwrap();
+        assert_eq!(else_nodes.len(), 1);
+        assert!(else_nodes[0].as_control_flow().is_some());
+    } else {
+        panic!("Expected If node");
     }
+}
+
+#[test]
+fn test_component_metadata() {
+    let input = r#"
+// name: UserCard
+// data: UserProfile
+
+el { div "User" }
+    "#;
+
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform_with_metadata(&doc, input).expect("Failed to transform");
+
+    assert_eq!(root.name, Some("UserCard".to_string()));
+    assert_eq!(root.data_type, Some("UserProfile".to_string()));
 }
 
 #[test]
@@ -207,181 +200,138 @@ el {
 }
     "#;
 
-    let doc = parser::parse(input).unwrap();
-    let root = transformer::transform(&doc).unwrap();
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
     let views = vec![("TestView".to_string(), root)];
-    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
+    let schema = ProtoSchema::default();
+    let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
-    // Verify Rust code contains string writes
-    assert!(rust_code.contains("r.push_str(\"<div\")"));
-    assert!(rust_code.contains("r.push_str(\">\")"));
-    assert!(rust_code.contains("r.push_str(\"Hello\")"));
-    assert!(rust_code.contains("r.push_str(\"</div>\")"));
+    assert!(rust_code.contains("fn render_testview"));
+    assert!(rust_code.contains(".push_str(\"<div\")"));
+    assert!(rust_code.contains("Hello"));
 }
 
 #[test]
 fn test_codegen_with_cel_expression() {
     let input = r#"
 el {
-    span "`user.name`"
+    div `user.name`
 }
     "#;
 
-    let doc = parser::parse(input).unwrap();
-    let root = transformer::transform(&doc).unwrap();
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
     let views = vec![("TestView".to_string(), root)];
-    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
+    let schema = ProtoSchema::default();
+    let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
-    // Should reference the data field
-    assert!(rust_code.contains("user"));
-    assert!(rust_code.contains("name"));
+    assert!(rust_code.contains("cel_eval_safe(\"user.name\""));
 }
 
 #[test]
 fn test_codegen_boolean_attribute() {
     let input = r#"
 el {
-    input type="checkbox" checked="`is_selected`"
+    button disabled=`!is_valid` "Submit"
 }
     "#;
 
-    let doc = parser::parse(input).unwrap();
-    let root = transformer::transform(&doc).unwrap();
-    let views = vec![("TestView".to_string(), root)];
-    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
-
-    // Boolean attributes should have conditional logic
-    assert!(rust_code.contains("is_selected"));
-    assert!(rust_code.contains("checked"));
-}
-
-#[test]
-fn test_proto_block_extraction() {
-    // Test that proto blocks are recognized (future: parse and validate)
-    let input = r#"
-/**
-message User {
-    string name = 1;
-    string email = 2;
-}
-*/
-
-el {
-    div `name`
-}
-    "#;
-
-    // For now, just verify the template parses
-    // Proto parsing will be implemented in Phase 5
-    let doc = parser::parse(input).expect("Failed to parse with proto block");
+    let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
-    assert!(!root.nodes.is_empty());
+    let views = vec![("TestView".to_string(), root)];
+    let schema = ProtoSchema::default();
+    let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
+
+    assert!(rust_code.contains("if cel_truthy(&cel_eval(\"!is_valid\""));
+    assert!(rust_code.contains(".push_str(\" disabled\")"));
 }
 
 #[test]
-fn test_component_metadata() {
+fn test_codegen_multi_interpolation() {
     let input = r#"
-// name: UserCard
-// data: User
-
 el {
-    div `name`
+    span "Hello `first` `last`!"
+}
+    "#;
+
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
+    let views = vec![("TestView".to_string(), root)];
+    let schema = ProtoSchema::default();
+    let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
+
+    assert!(rust_code.contains("Hello "));
+    assert!(rust_code.contains("cel_eval_safe(\"first\""));
+    assert!(rust_code.contains(" "));
+    assert!(rust_code.contains("cel_eval_safe(\"last\""));
+    assert!(rust_code.contains("!"));
+}
+
+#[test]
+fn test_codegen_scoped_css() {
+    let input = r#"
+el {
+    div {
+        style { color "red" }
+        "Text"
+    }
 }
     "#;
 
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform_with_metadata(&doc, input).expect("Failed to transform");
+    let views = vec![("Card".to_string(), root)];
+    let schema = ProtoSchema::default();
+    let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
-    // Metadata should be extracted
-    assert_eq!(root.name, Some("UserCard".to_string()));
-    assert_eq!(root.data_type, Some("User".to_string()));
+    // Should contain a generated scope class
+    assert!(rust_code.contains(".h-"));
+    assert!(rust_code.contains("{ color: red }"));
+}
+
+#[test]
+fn test_proto_block_extraction() {
+    let input = r#"
+/**
+message User {
+    string name = 1;
+}
+*/
+// name: MyComp
+el { div "ok" }
+    "#;
+
+    let schema = ProtoSchema::from_template(input, None).expect("Failed to parse with proto block");
+    assert!(schema.messages.contains_key("User"));
 }
 
 #[test]
 fn test_codegen_switch_case() {
     let input = r#"
 el {
-    switch "`status`" {
-        case STATUS_ACTIVE {
-            span "Active"
-        }
-        case STATUS_PENDING {
-            span "Pending"
-        }
-        default {
-            span "Unknown"
-        }
+    switch `status` {
+        case "ACTIVE" { div "active" }
+        default { div "other" }
     }
 }
     "#;
 
-    let doc = parser::parse(input).unwrap();
-    let root = transformer::transform(&doc).unwrap();
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
     let views = vec![("TestView".to_string(), root)];
-    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
+    let schema = ProtoSchema::default();
+    let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
-    // Switch should generate conditional logic
-    assert!(rust_code.contains("_switch_val"));
-    assert!(rust_code.contains("STATUS_ACTIVE"));
-    assert!(rust_code.contains("STATUS_PENDING"));
-    // Should have else clause for default
-    assert!(rust_code.contains("else"));
+    assert!(rust_code.contains("let _switch_val = cel_eval(\"status\""));
+    assert!(rust_code.contains("if cel_to_string(&_switch_val) == \"ACTIVE\""));
 }
 
 #[test]
-fn test_codegen_each_with_index() {
+fn test_control_flow_switch_with_enum() {
     let input = r#"
 el {
-    each item "`items`" {
-        li "`_index`"
-    }
-}
-    "#;
-
-    let doc = parser::parse(input).unwrap();
-    let root = transformer::transform(&doc).unwrap();
-    let views = vec![("TestView".to_string(), root)];
-    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
-
-    // Should have loop with index
-    assert!(rust_code.contains("_index"));
-    assert!(rust_code.contains("enumerate"));
-}
-
-#[test]
-fn test_codegen_multi_interpolation() {
-    // Test multiple CEL expressions in a single string
-    let input = r#"
-el {
-    span "Hello `name`, you have `count` messages"
-}
-    "#;
-
-    let doc = parser::parse(input).unwrap();
-    let root = transformer::transform(&doc).unwrap();
-    let views = vec![("TestView".to_string(), root)];
-    let rust_code = codegen::generate_wasm_lib(views).expect("Codegen failed");
-
-    // Should generate code referencing both expressions
-    assert!(rust_code.contains("Hello"));
-    assert!(rust_code.contains("name"));
-    assert!(rust_code.contains("count"));
-    assert!(rust_code.contains("messages"));
-}
-
-#[test]
-fn test_transform_nested_if_else() {
-    // Tests else-if pattern (nested if in else block)
-    let input = r#"
-el {
-    if "`x > 10`" {
-        span "high"
-    } else {
-        if "`x > 5`" {
-            span "medium"
-        } else {
-            span "low"
-        }
+    switch `status` {
+        case STATUS_ACTIVE { div "Active" }
     }
 }
     "#;
@@ -389,47 +339,110 @@ el {
     let doc = parser::parse(input).expect("Failed to parse");
     let root = transformer::transform(&doc).expect("Failed to transform");
 
-    let if_node = root.nodes[0].as_control_flow().expect("Should be control flow");
-    match if_node {
-        hudlc::ast::ControlFlow::If { condition, then_block, else_block } => {
-            assert_eq!(condition, "x > 10");
-            assert_eq!(then_block.len(), 1);
-            // Else block should contain another if
-            let else_nodes = else_block.as_ref().expect("Should have else block");
-            assert_eq!(else_nodes.len(), 1);
-            // The else block should contain another If control flow
-            let nested_if = else_nodes[0].as_control_flow().expect("Should be nested control flow");
-            match nested_if {
-                hudlc::ast::ControlFlow::If { condition, .. } => {
-                    assert_eq!(condition, "x > 5");
-                },
-                _ => panic!("Expected nested If node"),
-            }
-        },
-        _ => panic!("Expected If node"),
+    let cf = root.nodes[0].as_control_flow().unwrap();
+    if let hudlc::ast::ControlFlow::Switch { cases, .. } = cf {
+        assert_eq!(cases[0].0, "STATUS_ACTIVE");
+    } else {
+        panic!("Expected Switch node");
     }
 }
 
 #[test]
-fn test_codegen_scoped_css() {
-    // Test that scoped styles generate unique class names
+fn test_codegen_each_with_index() {
     let input = r#"
 el {
-    button {
-        style {
-            background-color "blue"
-            color "white"
-        }
-        "Click me"
+    each item `items` {
+        span `_index`
     }
 }
     "#;
 
-    let doc = parser::parse(input).unwrap();
-    let root = transformer::transform(&doc).unwrap();
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
+    let views = vec![("TestView".to_string(), root)];
+    let schema = ProtoSchema::default();
+    let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
-    // The button should have styles
-    let button = root.nodes[0].as_element().expect("Expected element");
-    assert_eq!(button.tag, "button");
-    assert!(!button.styles.is_empty());
-}
+        assert!(rust_code.contains("for (_idx, _item) in list.iter().enumerate()"));
+
+        assert!(rust_code.contains("let _ = loop_ctx.add_variable(\"_index\""));
+
+    }
+
+    
+
+    #[test]
+
+    fn test_codegen_slots() {
+
+        let layout_input = r#"
+
+    // name: Layout
+
+    el {
+
+        main { #content }
+
+    }
+
+        "#;
+
+        let page_input = r#"
+
+    import { "./layout" }
+
+    // name: Page
+
+    el {
+
+        Layout {
+
+            div "Inner"
+
+        }
+
+    }
+
+        "#;
+
+    
+
+        let doc_l = parser::parse(layout_input).unwrap();
+
+        let root_l = transformer::transform(&doc_l).unwrap();
+
+        
+
+        let doc_p = parser::parse(page_input).unwrap();
+
+        let root_p = transformer::transform(&doc_p).unwrap();
+
+    
+
+        let views = vec![
+
+            ("Layout".to_string(), root_l),
+
+            ("Page".to_string(), root_p)
+
+        ];
+
+        let schema = ProtoSchema::default();
+
+        let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
+
+    
+
+        // Layout should use content_html parameter
+
+        assert!(rust_code.contains("r.push_str(content_html)"));
+
+        // Page should render children and pass to Layout
+
+        assert!(rust_code.contains("let mut invocation_content = String::new()"));
+
+        assert!(rust_code.contains("render_layout(r, proto_data, &invocation_content)"));
+
+    }
+
+    

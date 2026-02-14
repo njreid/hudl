@@ -99,7 +99,7 @@ pub fn check_switch_with_proto(
                 // Try direct enum lookup (e.g., switch on a variable that is an enum)
                 // The expression might directly reference an enum type
                 let parts: Vec<&str> = switch_info.expr.split('.').collect();
-                let last_part = parts.last().unwrap_or(&"");
+                let _last_part = parts.last().unwrap_or(&"");
 
                 // Check if any enum matches based on case patterns
                 for (name, _) in &schema.enums {

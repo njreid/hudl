@@ -16,11 +16,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Options configures the Hudl runtime.
+type Options struct {
+	// DevMode enables rendering via the LSP dev server instead of WASM.
+	// If false, it will still check the HUDL_DEV environment variable.
+	DevMode bool
+	// DevServerAddr is the address of the LSP dev server (default: localhost:9999).
+	// If empty, it will check the HUDL_DEV_ADDR environment variable.
+	DevServerAddr string
+	// WASMBytes is the compiled WASM module data (required in prod mode).
+	WASMBytes []byte
+	// HttpClient is used for dev mode requests (optional).
+	HttpClient *http.Client
+}
+
 // Runtime renders Hudl templates.
-//
-// In prod mode (default), templates are rendered via an embedded WASM module.
-// In dev mode (HUDL_DEV=1), templates are rendered via HTTP to the LSP dev server,
-// enabling hot-reload without recompilation.
 type Runtime struct {
 	// WASM runtime (prod mode)
 	rt     wazero.Runtime
@@ -35,42 +45,47 @@ type Runtime struct {
 	client  *http.Client
 }
 
-// NewRuntime creates a new Hudl runtime from compiled WASM bytes.
-//
-// If the HUDL_DEV environment variable is set to "1" or "true", the runtime
-// operates in dev mode and renders via HTTP to the LSP dev server instead of WASM.
-// In dev mode, wasmBytes may be nil.
-func NewRuntime(ctx context.Context, wasmBytes []byte) (*Runtime, error) {
-	devMode := false
-	if v := os.Getenv("HUDL_DEV"); v == "1" || v == "true" {
-		devMode = true
+// NewRuntime creates a new Hudl runtime with the given options.
+func NewRuntime(ctx context.Context, opts Options) (*Runtime, error) {
+	devMode := opts.DevMode
+	if !devMode {
+		if v := os.Getenv("HUDL_DEV"); v == "1" || v == "true" {
+			devMode = true
+		}
 	}
 
-	devAddr := os.Getenv("HUDL_DEV_ADDR")
+	devAddr := opts.DevServerAddr
 	if devAddr == "" {
-		devAddr = "localhost:9999"
+		devAddr = os.Getenv("HUDL_DEV_ADDR")
+		if devAddr == "" {
+			devAddr = "localhost:9999"
+		}
 	}
 
 	if devMode {
+		client := opts.HttpClient
+		if client == nil {
+			client = &http.Client{
+				Timeout: 5 * time.Second,
+			}
+		}
 		return &Runtime{
 			ctx:     ctx,
 			devMode: true,
 			devAddr: devAddr,
-			client: &http.Client{
-				Timeout: 5 * time.Second,
-			},
+			client:  client,
 		}, nil
 	}
 
 	// Prod mode: initialize WASM
-	if wasmBytes == nil {
+	if opts.WASMBytes == nil {
 		return nil, fmt.Errorf("wasmBytes required in prod mode (set HUDL_DEV=1 for dev mode)")
 	}
 
 	r := wazero.NewRuntime(ctx)
 	wasi_snapshot_preview1.MustInstantiate(ctx, r)
 
-	mod, err := r.Instantiate(ctx, wasmBytes)
+	mod, err := r.Instantiate(ctx, opts.WASMBytes)
 	if err != nil {
 		r.Close(ctx)
 		return nil, fmt.Errorf("failed to instantiate module: %w", err)
@@ -93,6 +108,11 @@ func NewRuntime(ctx context.Context, wasmBytes []byte) (*Runtime, error) {
 	}, nil
 }
 
+// NewRuntimeFromWASM is a helper to create a prod-mode runtime from WASM bytes.
+func NewRuntimeFromWASM(ctx context.Context, wasmBytes []byte) (*Runtime, error) {
+	return NewRuntime(ctx, Options{WASMBytes: wasmBytes})
+}
+
 func (r *Runtime) Close() error {
 	if r.rt != nil {
 		return r.rt.Close(r.ctx)
@@ -101,12 +121,7 @@ func (r *Runtime) Close() error {
 }
 
 // Render renders a view with the given proto message data.
-// The data must be a proto.Message that matches the view's expected data type.
-//
-// In dev mode, this sends an HTTP request to the LSP dev server.
-// In prod mode, this calls the WASM module directly.
 func (r *Runtime) Render(viewName string, data proto.Message) (string, error) {
-	// Serialize data to proto wire format
 	var params []byte
 	if data != nil {
 		var err error
@@ -123,7 +138,6 @@ func (r *Runtime) Render(viewName string, data proto.Message) (string, error) {
 }
 
 // RenderBytes renders a view with raw proto wire format bytes.
-// Use this when you already have serialized proto data.
 func (r *Runtime) RenderBytes(viewName string, protoBytes []byte) (string, error) {
 	if r.devMode {
 		return r.renderDev(viewName, protoBytes)
@@ -131,7 +145,6 @@ func (r *Runtime) RenderBytes(viewName string, protoBytes []byte) (string, error
 	return r.renderWASM(viewName, protoBytes)
 }
 
-// renderDev sends a render request to the LSP dev server.
 func (r *Runtime) renderDev(viewName string, protoBytes []byte) (string, error) {
 	url := fmt.Sprintf("http://%s/render", r.devAddr)
 
@@ -166,14 +179,12 @@ func (r *Runtime) renderDev(viewName string, protoBytes []byte) (string, error) 
 	return string(body), nil
 }
 
-// renderWASM renders using the embedded WASM module.
 func (r *Runtime) renderWASM(viewName string, protoBytes []byte) (string, error) {
 	renderFunc := r.mod.ExportedFunction(viewName)
 	if renderFunc == nil {
 		return "", fmt.Errorf("view function %s not found", viewName)
 	}
 
-	// Allocate memory for input params
 	paramPtr := uint64(0)
 	if len(protoBytes) > 0 {
 		results, err := r.malloc.Call(r.ctx, uint64(len(protoBytes)))
@@ -187,7 +198,6 @@ func (r *Runtime) renderWASM(viewName string, protoBytes []byte) (string, error)
 		defer r.free.Call(r.ctx, paramPtr, uint64(len(protoBytes)))
 	}
 
-	// Call the view function
 	results, err := renderFunc.Call(r.ctx, paramPtr, uint64(len(protoBytes)))
 	if err != nil {
 		return "", fmt.Errorf("render failed: %w", err)
@@ -197,13 +207,11 @@ func (r *Runtime) renderWASM(viewName string, protoBytes []byte) (string, error)
 	ptr := uint32(packed >> 32)
 	size := uint32(packed)
 
-	// Read the result string from memory
 	outBytes, ok := r.mod.Memory().Read(ptr, size)
 	if !ok {
 		return "", fmt.Errorf("failed to read result from memory at %d (size %d)", ptr, size)
 	}
 
-	// Free the string memory in WASM
 	defer r.free.Call(r.ctx, uint64(ptr), uint64(size))
 
 	return string(outBytes), nil

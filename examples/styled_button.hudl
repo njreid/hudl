@@ -1,24 +1,23 @@
 /**
 message ButtonData {
-    string label = 1;
-    bool disabled = 2;
+  string label = 1;
+  bool disabled = 2;
 }
 */
 
 // name: StyledButton
 // data: ButtonData
-
 el {
-    // Scoped styles: the generated class (h-*) merges with existing classes
-    button.btn.btn-cancel "`label`" {
-        style {
-            background-color "red"
-            color "white"
-            font-weight "bold"
-            padding "10px 20px"
-            border "none"
-            border-radius "4px"
-            cursor "pointer"
-        }
+  // Scoped styles: the generated class (h-*) merges with existing classes
+  button.btn.btn-cancel `label` {
+    style {
+      background-color "red"
+      color "white"
+      font-weight "bold"
+      padding "10px 20px"
+      border "none"
+      border-radius "4px"
+      cursor "pointer"
     }
+  }
 }

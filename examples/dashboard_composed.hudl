@@ -1,90 +1,84 @@
-import {
-    ./stat_card
-}
-
 /**
-// Import shared types (in real usage, these would be in separate .proto files)
+// Import shared types (in real usage,
+// these would be in separate .proto
+// files)
 import "stat_card.proto";
-
 enum TransactionStatus {
-    STATUS_UNKNOWN = 0;
-    STATUS_ACTIVE = 1;
-    STATUS_PENDING = 2;
-    STATUS_FAILED = 3;
+  STATUS_UNKNOWN = 0;
+  STATUS_ACTIVE = 1;
+  STATUS_PENDING = 2;
+  STATUS_FAILED = 3;
 }
-
 message Transaction {
-    string id = 1;
-    string customer_name = 2;
-    string customer_email = 3;
-    string amount_formatted = 4;
-    TransactionStatus status = 5;
+  string id = 1;
+  string customer_name = 2;
+  string customer_email = 3;
+  string amount_formatted = 4;
+  TransactionStatus status = 5;
 }
-
 message DashboardComposedData {
-    repeated StatCardData stats = 1;
-    repeated Transaction transactions = 2;
+  repeated StatCardData stats = 1;
+  repeated Transaction transactions = 2;
 }
 */
 
+import {
+  ./stat_card
+}
 // name: DashboardComposed
 // data: DashboardComposedData
-
 el {
-    &dashboard-view {
-        h1.text-3xl.font-bold.mb-6 "Overview"
-
-        // Render stat cards using component composition
-        .grid.grid-cols-1.md:grid-cols-3.gap-6.mb-8 {
-            each stat `stats` {
-                StatCard `stat`
-            }
-        }
-
-        h2.text-xl.font-semibold.mb-4 "Recent Transactions"
-
-        .overflow-x-auto.rounded-lg.border.border-slate-700 {
-            table.w-full.text-left.text-sm {
-                thead.bg-slate-900.text-slate-400.uppercase {
-                    tr {
-                        th.px-6.py-3 "#"
-                        th.px-6.py-3 "ID"
-                        th.px-6.py-3 "Customer"
-                        th.px-6.py-3 "Amount"
-                        th.px-6.py-3 "Status"
-                    }
-                }
-                tbody.divide-y.divide-slate-800.bg-slate-800 {
-                    each tx `transactions` {
-                        tr.hover:bg-slate-700 {
-                            // Demonstrate _index magic variable
-                            td.px-6.py-4.text-slate-500 `string(_index + 1)`
-                            td.px-6.py-4.font-mono.text-slate-500 `tx.id`
-                            td.px-6.py-4 {
-                                div.font-medium `tx.customer_name`
-                                div.text-xs.text-slate-500 `tx.customer_email`
-                            }
-                            td.px-6.py-4 `tx.amount_formatted`
-                            td.px-6.py-4 {
-                                switch `tx.status` {
-                                    case STATUS_ACTIVE {
-                                        span.badge.bg-green-500.text-green-950.px-2.py-1.rounded "Active"
-                                    }
-                                    case STATUS_PENDING {
-                                        span.badge.bg-yellow-500.text-yellow-950.px-2.py-1.rounded "Pending"
-                                    }
-                                    case STATUS_FAILED {
-                                        span.badge.bg-red-500.text-white.px-2.py-1.rounded "Failed"
-                                    }
-                                    default {
-                                        span.badge.bg-slate-500.text-white.px-2.py-1.rounded "Unknown"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+  #dashboard-view {
+    h1.text-3xl.font-bold.mb-6 "Overview"
+    // Render stat cards using component composition
+    .grid.grid-cols-1.md:grid-cols-3.gap-6.mb-8 {
+      each stat `stats` {
+        StatCard `stat`
+      }
     }
+    h2.text-xl.font-semibold.mb-4 "Recent Transactions"
+    .overflow-x-auto.rounded-lg.border.border-slate-700 {
+      table.w-full.text-left.text-sm {
+        thead.bg-slate-900.text-slate-400.uppercase {
+          tr {
+            th.px-6.py-3 "#"
+            th.px-6.py-3 "ID"
+            th.px-6.py-3 "Customer"
+            th.px-6.py-3 "Amount"
+            th.px-6.py-3 "Status"
+          }
+        }
+        tbody.divide-y.divide-slate-800.bg-slate-800 {
+          each tx `transactions` {
+            tr.hover:bg-slate-700 {
+              // Demonstrate _index magic variable
+              td.px-6.py-4.text-slate-500 `string(_index + 1)`
+              td.px-6.py-4.font-mono.text-slate-500 `tx.id`
+              td.px-6.py-4 {
+                div.font-medium `tx.customer_name`
+                div.text-xs.text-slate-500 `tx.customer_email`
+              }
+              td.px-6.py-4 `tx.amount_formatted`
+              td.px-6.py-4 {
+                switch tx.status {
+                  case "STATUS_ACTIVE" {
+                    span.badge.bg-green-500.text-green-950.px-2.py-1.rounded "Active"
+                  }
+                  case "STATUS_PENDING" {
+                    span.badge.bg-yellow-500.text-yellow-950.px-2.py-1.rounded "Pending"
+                  }
+                  case "STATUS_FAILED" {
+                    span.badge.bg-red-500.text-white.px-2.py-1.rounded "Failed"
+                  }
+                  default {
+                    span.badge.bg-slate-500.text-white.px-2.py-1.rounded "Unknown"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }

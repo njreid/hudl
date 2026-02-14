@@ -174,7 +174,7 @@ fn collect_datastar_attrs_from_nodes<'a>(
                     }
                 }
             },
-            Node::Text(_) => {}
+            Node::Text(_) | Node::ContentSlot => {}
         }
     }
 }
@@ -244,7 +244,7 @@ fn collect_signals_from_nodes(nodes: &[Node], out: &mut Vec<String>) {
                     }
                 }
             },
-            Node::Text(_) => {}
+            Node::Text(_) | Node::ContentSlot => {}
         }
     }
 }

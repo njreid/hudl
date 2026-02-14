@@ -5,14 +5,14 @@
 
 use axum::{
     Router,
-    extract::{Path as AxumPath, State},
+    extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json, Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
 use futures_util::stream::Stream;
 use notify::{Event, RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::path::{Path, PathBuf};
@@ -25,7 +25,6 @@ use tokio_stream::StreamExt as _;
 struct CachedTemplate {
     root: hudlc::ast::Root,
     schema: hudlc::proto::ProtoSchema,
-    file_path: PathBuf,
 }
 
 /// Shared state for the dev server.
@@ -143,7 +142,6 @@ impl DevServerState {
                 CachedTemplate {
                     root,
                     schema,
-                    file_path: path.to_path_buf(),
                 },
             );
             Ok(name)
@@ -258,7 +256,6 @@ async fn render_handler(
     let start = std::time::Instant::now();
     
     // Build component map for the interpreter
-    let templates = state.templates.lock().unwrap();
     let mut components = HashMap::new();
     for (name, cached) in templates.iter() {
         components.insert(name.clone(), &cached.root);
@@ -372,8 +369,8 @@ pub async fn start(
 
     let app = create_router(Arc::clone(&state));
 
-    let addr = format!("0.0.0.0:{}", port);
-    eprintln!("[dev-server] Starting on http://localhost:{}", port);
+    let addr = format!("127.0.0.1:{}", port);
+    eprintln!("[dev-server] Starting on http://{}", addr);
     eprintln!("[dev-server] Watching: {}", watch_dir.display());
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;

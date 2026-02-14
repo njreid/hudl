@@ -1,20 +1,22 @@
 # Hudl: The WASM-Native KDL Templating Language
 
-**Hudl** is a type-safe templating language that compiles KDL (v2) document structures into high-performance **WebAssembly (WASM)** modules. It leverages the robustness of the Rust KDL ecosystem for parsing and compilation, while remaining easy to embed in Go applications using **wazero**.
+**Hudl** is a type-safe templating language that compiles KDL (v2) document structures into high-performance **WebAssembly (WASM)** modules. It uses **Protocol Buffers** for data contracts and **CEL (Common Expression Language)** for expressions, and is designed to be easily embedded in Go applications using **wazero**.
 
 ## Architecture
 
-*   **Compiler (`hudlc`)**: Written in Rust. Compiles `.hudl` templates into a single `.wasm` binary.
-*   **Runtime**: Go application loads the `.wasm` file using `wazero`.
-*   **Views**: Each template file becomes an exported function in the WASM module.
+* **Compiler (`hudlc`)**: Written in Rust. Compiles `.hudl` templates and proto definitions into a single `.wasm` binary.
+* **Runtime**: Go application loads the `.wasm` file using `wazero`.
+* **Views**: Each template file becomes an exported function in the WASM module.
+* **Interpreter**: A Rust-based interpreter provides instant hot-reload during development.
 
 ## Features
 
-*   **HTML Mapping**: KDL nodes map directly to HTML tags.
-*   **WASM Powered**: Templates are compiled to portable, secure WebAssembly instructions.
-*   **KDL v2**: Fully compliant KDL v2 support via `kdl-rs`.
-*   **Go Integration**: Zero-cgo embedding via `wazero`.
-*   **Type Safety**: Strict parameter typing and exhaustiveness checks at compile time.
+* **HTML Mapping**: KDL nodes map directly to HTML tags.
+* **WASM Powered**: Templates are compiled to portable, secure WebAssembly instructions.
+* **KDL v2**: Fully compliant KDL v2 support via `kdl-rs`.
+* **Type Safety**: Data contracts defined via Protocol Buffers (proto3).
+* **Expressions**: High-performance evaluation via CEL (Common Expression Language).
+* **Datastar Integration**: First-class support for the Datastar hypermedia framework.
 
 ---
 
@@ -22,7 +24,7 @@
 
 ### 1. Basic Structure
 
-A generic HTML element is defined by its tag name. Attributes are KDL properties. Inner text is the last positional argument.
+A generic HTML element is defined by its tag name. Attributes are KDL properties. Inner text is a positional argument or interpolated string.
 
 ```kdl
 // Generic form
@@ -38,10 +40,10 @@ CSS selectors can be used directly as node names. If no tag name is provided, `d
 
 ```kdl
 // Explicit tag with selectors
-h1&main-title.text-center "Welcome"
+h1#main-title.text-center "Welcome"
 
-// Implicit div
-&container.flex-row {
+// Implicit div with ID shorthand
+#container.flex-row {
     .sidebar "Sidebar Content"
 }
 
@@ -54,34 +56,47 @@ h1&main-title.text-center "Welcome"
 
 ### 3. Special Link Nodes (`_`)
 
-The `_` prefix creates `<link>` tags efficiently.
+The `_` prefix creates `<link>` or `<script>` tags efficiently.
 
 ```kdl
 // Stylesheet shorthand
-_stylesheet "/css/main.css"
+_stylesheet "/style.css"
 
-// Preload shorthand
-_preload "/fonts/inter.woff2" as=font
+// Script shorthand
+_script "/app.js"
 
 // Generic link (rel comes after underscore)
 _icon "/favicon.ico"
 ```
 
-### 4. Components & Parameters
+### 4. Components & Imports
 
-Hudl supports reusable components. Top-level metadata is provided via structured comments. Use `import` to use components from other files.
+Hudl supports reusable components. Top-level metadata is provided via structured comments. Use `import` to use components from other files and `#content` to define where nested children should be rendered.
 
 ```kdl
-import {
-    ./layout
+// layout.hudl
+// name: AppLayout
+el {
+    html {
+        head { title `title` }
+        body {
+            header { h1 "My App" }
+            main { #content }
+        }
+    }
 }
 
-// name: UserBadge
+// index.hudl
+import {
+    "./layout"
+}
+
+// name: HomePage
 // data: User
 el {
-    AppLayout title="User Badge" {
-        .badge {
-            span "`name`"
+    AppLayout title="Home" {
+        .welcome-card {
+            h2 "Welcome back, `name`!"
         }
     }
 }
@@ -89,71 +104,53 @@ el {
 
 ### 5. Scoped CSS
 
-You can define styles scoped to a component using a `css` block. The compiler generates unique class names to prevent conflicts. 
-
-Within a `css` block:
-*   Nodes starting with `&` followed by alphanumeric characters (e.g., `&main`) are converted to CSS IDs (e.g., `#main`).
-*   Nodes starting with `&` followed by punctuation (e.g., `&:hover`, `&::after`) are treated as standard CSS parent selectors.
+You can define styles scoped to a component using a `css` block or inline `style` blocks.
 
 ```kdl
 el {
     css {
-        .card {
-            background-color "white"
-        }
-        // Becomes #header
-        &header {
-            border-bottom "1px solid black"
-        }
-        // Standard CSS nesting/pseudo-class
-        .card:hover {
-            background-color "#f0f0f0"
-        }
+        .card { background-color "white" }
+        #header { border-bottom "1px solid black" }
     }
 
-    &header { h1 "My App" }
-    .card { p "Content" }
+    button {
+        style { color "red" }
+        "Delete"
+    }
 }
 ```
 
-### 6. Property & Node Values
-
-*   **Unquoted Strings**: Standard strings do not need quotes.
-*   **Numbers**: Prefix numbers with `_` to make them valid KDL identifiers.
-    *   `width _6px` compiles to `width: 6px`.
-    *   `_0%` (node name) compiles to `0%` (e.g., in keyframes).
-
-### 7. Control Flow
+### 6. Control Flow
 
 #### If / Else
 
-Standard conditional logic using Go expressions in backticks (wrapped in quotes if they contain spaces).
+Conditional logic using CEL expressions in backticks.
 
 ```kdl
-if "`len(items) == 0`" {
+if `size(items) == 0` {
     p "No items found."
 } else {
-    p "Found items."
+    p "Found `size(items)` items."
 }
 ```
 
 #### Each (Iterators)
 
-Iterates over a collection using CEL. Inside the block, the binding name and `_index` are available.
+Iterates over a collection. Inside the block, the binding name and `_index` are available.
 
 ```kdl
 // data: NavData
 each item `nav_items` {
     li {
         span "Item #`_index`: "
-        a href="`item.url`" "`item.label`"
+        a href=`item.url` `item.label`
     }
 }
 ```
 
-#### Switch (Type & Value)
+#### Switch
 
-Provides branching based on values.
+Provides branching based on values or types.
 
 ```kdl
 // data: Notification
@@ -174,52 +171,93 @@ switch `type` {
 
 ---
 
+## Datastar Integration
+
+Hudl provides first-class syntax for [Datastar](https://data-star.dev) reactive attributes using the `~` prefix.
+
+```kdl
+div {
+    ~ {
+        let:count 0
+        on:click "$count++"
+        show "$count < 10"
+    }
+
+    // Binding shorthand
+    input~>username placeholder="Enter name..."
+
+    button ~on:click="@post('/api/save')" "Save"
+}
+```
+
+---
+
+## Syntax Highlighting
+
+Hudl provides advanced syntax highlighting via Tree-sitter, with intentional color differentiation between backend and frontend logic:
+
+*   **Backend (CEL)**: Anything contained inside backticks (`` `...` ``) is highlighted as backend code. These expressions are evaluated by the Go/WASM runtime.
+*   **Frontend (Datastar)**: Properties starting with `~` and the special `~ { }` block are highlighted as frontend expressions. These run in the browser via the Datastar framework.
+
+### Combined Expressions
+
+Backend CEL expressions can be seamlessly embedded within frontend Datastar expressions. This is powerful for initializing frontend state with backend data:
+
+```kdl
+div {
+    ~ {
+        // Initialize frontend signal with backend data
+        let:user_id `user.id`
+        
+        // Dynamic frontend action using backend-provided URL
+        on:click "@get('`api_base`/users/`user.id`')"
+    }
+}
+```
+
+In the example above, `` `user.id` `` and `` `api_base` `` will be highlighted differently than the `let:` and `on:` Datastar attributes, making it easy to distinguish where each piece of logic executes.
+
+---
+
 ## The LSP
 
-The `hudl` ecosystem relies on `hudl-lsp`.
+The `hudl` ecosystem relies on `hudl-lsp` for a rich editing experience.
 
 ### Formatting
 
 On save, the LSP normalizes your code:
 
-* Expands `div id=foo` to `&foo`.
-* Aligns `case` statements.
-* Enforces indentation.
-
-### Compilation
-
-Running `hudlc` compiles your `.hudl` files into a single optimized `views.wasm` file. This binary contains all your templates as exported functions, ready to be called from your host application.
+* Expands attributes to shorthands where possible.
+* Aligns blocks and enforces consistent indentation.
+* Groups multiple tilde blocks.
 
 ### Diagnostics
 
-* **Type Checking**: Verifies that fields accessed in backticks (e.g., `user.Name`) exist on the Go struct.
-* **Exhaustiveness**: Warns if a `switch` on an interface misses a specific implementation.
+* **Type Checking**: Verifies CEL expressions against your Protocol Buffer schemas.
+* **Component Validation**: Ensures components are called with the correct data types.
+* **Switch Exhaustiveness**: Warns if a switch on an enum misses a case.
+
+---
 
 ## Development Mode
 
-Hudl provides a high-productivity "Dev Mode" that avoids the need for WASM recompilation during template development.
+Hudl provides a high-productivity "Dev Mode" using the LSP as a rendering sidecar.
 
 ### 1. Start the LSP Dev Server
 
-The LSP can act as a rendering sidecar. Run it from your project root:
+Run the LSP in dev-server mode from your project root:
 
 ```bash
 hudl-lsp --dev-server --port 9999 --watch ./views
 ```
 
-Optional: add `--verbose` or `-v` for detailed request logging.
-
 ### 2. Configure the Go Runtime
 
-In your Go application, set the following environment variables (or use `hudl.Options`):
+In your Go application, set the environment variables:
 
 ```bash
 export HUDL_DEV=1
 export HUDL_DEV_ADDR=localhost:9999
 ```
 
-When `HUDL_DEV` is enabled, the Go runtime will send render requests to the LSP over HTTP instead of executing the WASM binary. 
-
-### 3. Live Reload
-
-The LSP dev server automatically injects a small live-reload script into rendered pages when in dev mode. This script uses Server-Sent Events (SSE) to listen for file changes and refreshes the browser automatically when a `.hudl` file is saved.
+The runtime will now use SSE-based hot-reload, automatically refreshing your browser when you save a `.hudl` file.

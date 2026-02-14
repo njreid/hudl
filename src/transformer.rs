@@ -12,18 +12,18 @@ pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
 
     for node in doc.nodes() {
         match node.name().value() {
-            "import" => {
+            "__hudl_import" => {
                 if let Some(children) = node.children() {
                     for import_node in children.nodes() {
                         imports.push(import_node.name().value().to_string());
                     }
                 }
             }
-            "el" => {
+            "__hudl_el" => {
                 if let Some(children) = node.children() {
                     let mut view_nodes = Vec::new();
                     for child in children.nodes() {
-                        if child.name().value() == "css" {
+                        if child.name().value() == "__hudl_css" {
                             css = Some(process_css(child)?);
                         } else {
                             view_nodes.push(child.clone());
@@ -104,25 +104,10 @@ fn process_css(node: &KdlNode) -> Result<String, String> {
     let mut css_output = String::new();
     if let Some(children) = node.children() {
         for rule in children.nodes() {
-            let selector_raw = rule.name().value();
-            // Convert &header -> #header
-            let selector = if selector_raw.starts_with('&') {
-                selector_raw.replace("&", "#")
-            } else {
-                selector_raw.to_string()
-            };
+            let selector = rule.name().value();
 
-            css_output.push_str(&selector);
+            css_output.push_str(selector);
             css_output.push_str(" { ");
-
-            for _entry in rule.entries() {
-                // Property name is usually the entry name?
-                // Wait, KDL: `margin _0;` -> node `margin` with arg `_0`.
-                // But here we are iterating *children* of `css`.
-                // `&header { margin _0; }`
-                // `rule` is `&header`.
-                // `rule` children are the properties?
-            }
 
             if let Some(props) = rule.children() {
                 for prop in props.nodes() {
@@ -148,34 +133,47 @@ fn process_css(node: &KdlNode) -> Result<String, String> {
     Ok(css_output)
 }
 
-fn parse_selector(input: &str) -> (String, Option<String>, Vec<String>) {
+fn parse_selector(input: &str) -> (String, Option<String>, Vec<String>, Vec<DatastarAttr>) {
     let mut tag = "div".to_string();
     let mut id = None;
     let mut classes = Vec::new();
+    let mut datastar = Vec::new();
     
+    // Check for binding shorthand: element~>signal
+    let (input_cleaned, _remaining) = if let Some(idx) = input.find("~>") {
+        let tag_part = &input[..idx];
+        let bind_part = &input[idx + 2..];
+        
+        // Split bind part into signal name and modifiers
+        let (signal, modifiers) = parse_attr_name_and_modifiers(bind_part);
+        datastar.push(DatastarAttr {
+            name: "bind".to_string(),
+            value: Some(signal),
+            modifiers,
+        });
+        
+        (tag_part, String::new())
+    } else {
+        (input, String::new())
+    };
+
     // Heuristic parsing
     let mut current_token = String::new();
     let mut mode = 't'; // t=tag, i=id, c=class
     
     // Check if it starts with shorthand
-    let start_idx = if input.starts_with('&') {
+    let start_idx = if input_cleaned.starts_with('#') {
         mode = 'i';
         1
-    } else if input.starts_with('.') {
+    } else if input_cleaned.starts_with('.') {
         mode = 'c';
         1
     } else {
         0
     };
 
-    if start_idx == 1 {
-        // Tag remains "div"
-    } else {
-        // We are parsing tag
-    }
-
-    for c in input[start_idx..].chars() {
-        if c == '&' || c == '#' {
+    for c in input_cleaned[start_idx..].chars() {
+        if c == '#' {
             // Commit current
             match mode {
                 't' => tag = current_token,
@@ -207,7 +205,7 @@ fn parse_selector(input: &str) -> (String, Option<String>, Vec<String>) {
         _ => {}
     }
 
-    (tag, id, classes)
+    (tag, id, classes, datastar)
 }
 
 fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
@@ -217,7 +215,7 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
     while let Some(node) = iter.next() {
         let name = node.name().value();
         match name {
-            "if" => {
+            "__hudl_if" => {
                 let condition = node.entries().get(0)
                     .and_then(|e| e.value().as_string())
                     .ok_or("if node missing condition")?
@@ -234,7 +232,7 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                 let mut else_block = None;
                 let mut has_else = false;
                 if let Some(next_node) = iter.peek() {
-                    if next_node.name().value() == "else" {
+                    if next_node.name().value() == "__hudl_else" {
                         has_else = true;
                     }
                 }
@@ -252,7 +250,7 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                     else_block,
                 }));
             }
-            "each" => {
+            "__hudl_each" => {
                 // New syntax: each binding `iterable` { ... }
                 // Two positional arguments: binding name and CEL expression
                 let args: Vec<String> = node.entries().iter()
@@ -278,7 +276,7 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                     body,
                 }));
             }
-            "switch" => {
+            "__hudl_switch" => {
                 let expr = node.entries().get(0)
                     .and_then(|e| e.value().as_string())
                     .ok_or("switch node missing expression")?
@@ -291,7 +289,7 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                 if let Some(children) = node.children() {
                     for child in children.nodes() {
                         match child.name().value() {
-                            "case" => {
+                            "__hudl_case" => {
                                 // Pattern can be a bare identifier (enum value) or string
                                 let pattern = child.entries().get(0)
                                     .and_then(|e| e.value().as_string())
@@ -306,7 +304,7 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
 
                                 cases.push(SwitchCase(pattern, case_children));
                             }
-                            "default" => {
+                            "__hudl_default" => {
                                 let def_children = if let Some(block) = child.children() {
                                     transform_block(block.nodes())?
                                 } else {
@@ -325,8 +323,11 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
                     default,
                 }));
             }
-            "else" => {
+            "__hudl_else" => {
                 return Err("Unexpected 'else' without matching 'if'".to_string());
+            }
+            "__hudl_content" => {
+                result.push(Node::ContentSlot);
             }
             _ => {
                 result.push(transform_node(node)?);
@@ -339,12 +340,11 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
 fn transform_node(node: &KdlNode) -> Result<Node, String> {
     let name = node.name().value();
 
-    let (tag, mut id, mut classes) = parse_selector(name);
+    let (tag, mut id, mut classes, mut datastar) = parse_selector(name);
 
     let mut attributes = HashMap::new();
     let mut children = Vec::new();
     let mut styles = Vec::new();
-    let mut datastar = Vec::new();
 
     // 1. Process entries (Properties and Arguments)
     for entry in node.entries() {

@@ -6,8 +6,7 @@
 //! - Evaluates CEL expressions at runtime
 //! - Generates scoped CSS for component styles
 
-use crate::ast::{Node, Root, SwitchCase};
-use crate::codegen::datastar_attr_to_html;
+use crate::ast::{Node, Root, SwitchCase, datastar_attr_to_html};
 use crate::proto::{ProtoField, ProtoSchema, ProtoType};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -71,10 +70,10 @@ pub fn generate_wasm_lib_cel(
     code.push_str("}\n\n");
 
     // Proto wire format decoder
-    code.push_str(PROTO_DECODER);
+    code.push_str(crate::proto::PROTO_DECODER_SRC);
 
     // Proto wire format encoder
-    code.push_str(PROTO_ENCODER);
+    code.push_str(crate::proto::PROTO_ENCODER_SRC);
 
     // CEL evaluation helpers
     code.push_str(CEL_HELPERS);
@@ -87,9 +86,8 @@ pub fn generate_wasm_lib_cel(
     // Build map of component name -> data type
     let mut component_types = HashMap::new();
     for (name, root) in &views {
-        if let Some(dt) = &root.data_type {
-            component_types.insert(name.clone(), dt.clone());
-        }
+        let dt = root.data_type.clone().unwrap_or_default();
+        component_types.insert(name.clone(), dt);
     }
 
     // Generate view render functions
@@ -107,284 +105,6 @@ pub fn generate_wasm_lib_cel_simple(views: Vec<(String, Root)>) -> Result<String
     let schema = ProtoSchema::default();
     generate_wasm_lib_cel(views, &schema)
 }
-
-const PROTO_DECODER: &str = r#"
-// Proto wire format types
-const WIRE_VARINT: u32 = 0;
-const WIRE_FIXED64: u32 = 1;
-const WIRE_LENGTH_DELIMITED: u32 = 2;
-const WIRE_FIXED32: u32 = 5;
-
-/// Decoded proto value
-#[derive(Clone, Debug)]
-enum ProtoValue {
-    Varint(u64),
-    SignedVarint(i64),
-    Fixed32(u32),
-    Fixed64(u64),
-    Float(f32),
-    Double(f64),
-    String(String),
-    Bytes(Vec<u8>),
-    Message(HashMap<u32, ProtoValue>),
-    Repeated(Vec<ProtoValue>),
-    Bool(bool),
-}
-
-struct ProtoReader<'a> {
-    data: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> ProtoReader<'a> {
-    fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0 }
-    }
-
-    fn remaining(&self) -> usize {
-        self.data.len() - self.pos
-    }
-
-    fn read_varint(&mut self) -> Option<u64> {
-        let mut result: u64 = 0;
-        let mut shift = 0;
-        loop {
-            if self.pos >= self.data.len() {
-                return None;
-            }
-            let byte = self.data[self.pos];
-            self.pos += 1;
-            result |= ((byte & 0x7f) as u64) << shift;
-            if byte & 0x80 == 0 {
-                return Some(result);
-            }
-            shift += 7;
-            if shift >= 64 {
-                return None;
-            }
-        }
-    }
-
-    fn read_signed_varint(&mut self) -> Option<i64> {
-        let v = self.read_varint()?;
-        // ZigZag decoding
-        Some(((v >> 1) as i64) ^ -((v & 1) as i64))
-    }
-
-    fn read_fixed32(&mut self) -> Option<u32> {
-        if self.pos + 4 > self.data.len() {
-            return None;
-        }
-        let bytes = &self.data[self.pos..self.pos + 4];
-        self.pos += 4;
-        Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-    }
-
-    fn read_fixed64(&mut self) -> Option<u64> {
-        if self.pos + 8 > self.data.len() {
-            return None;
-        }
-        let bytes = &self.data[self.pos..self.pos + 8];
-        self.pos += 8;
-        Some(u64::from_le_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
-    }
-
-    fn read_length_delimited(&mut self) -> Option<&'a [u8]> {
-        let len = self.read_varint()? as usize;
-        if self.pos + len > self.data.len() {
-            return None;
-        }
-        let result = &self.data[self.pos..self.pos + len];
-        self.pos += len;
-        Some(result)
-    }
-
-    fn read_string(&mut self) -> Option<String> {
-        let bytes = self.read_length_delimited()?;
-        String::from_utf8(bytes.to_vec()).ok()
-    }
-}
-
-/// Decode raw proto message into field map
-fn decode_proto_message(data: &[u8]) -> HashMap<u32, ProtoValue> {
-    let mut reader = ProtoReader::new(data);
-    let mut fields: HashMap<u32, ProtoValue> = HashMap::new();
-
-    while reader.remaining() > 0 {
-        let tag = match reader.read_varint() {
-            Some(t) => t,
-            None => break,
-        };
-        let field_number = (tag >> 3) as u32;
-        let wire_type = (tag & 0x7) as u32;
-
-        let value = match wire_type {
-            WIRE_VARINT => reader.read_varint().map(ProtoValue::Varint),
-            WIRE_FIXED64 => reader.read_fixed64().map(ProtoValue::Fixed64),
-            WIRE_LENGTH_DELIMITED => {
-                reader.read_length_delimited().map(|b| ProtoValue::Bytes(b.to_vec()))
-            }
-            WIRE_FIXED32 => reader.read_fixed32().map(ProtoValue::Fixed32),
-            _ => None,
-        };
-
-        if let Some(v) = value {
-            // Handle repeated fields by collecting into a list
-            if let Some(existing) = fields.remove(&field_number) {
-                match existing {
-                    ProtoValue::Repeated(mut list) => {
-                        list.push(v);
-                        fields.insert(field_number, ProtoValue::Repeated(list));
-                    }
-                    other => {
-                        fields.insert(field_number, ProtoValue::Repeated(vec![other, v]));
-                    }
-                }
-            } else {
-                fields.insert(field_number, v);
-            }
-        }
-    }
-
-    fields
-}
-
-"#;
-
-const PROTO_ENCODER: &str = r#"
-/// Encode CelValue back to proto wire format
-fn encode_cel_to_proto(val: &CelValue, type_name: &str) -> Vec<u8> {
-    let mut buf = Vec::new();
-    
-    match val {
-        CelValue::Map(m) => {
-            // It's a message (map of fields)
-            if let Some(msg) = SCHEMA.get_message(type_name) {
-                // Iterate over map entries and encode fields
-                for (k, v) in m.map.iter() {
-                    let (field_num, field_type) = match k {
-                        Key::Int(i) => (*i as u32, None), // Already a number, type unknown
-                        Key::String(s) => {
-                            // Find field by name in schema
-                            if let Some(field) = msg.fields.iter().find(|f| f.name == **s) {
-                                (field.number, Some(&field.field_type))
-                            } else {
-                                (0, None) // Unknown field
-                            }
-                        }
-                        _ => (0, None),
-                    };
-                    
-                    if field_num > 0 {
-                        encode_field(&mut buf, field_num, v, field_type);
-                    }
-                }
-            } else {
-                // Unknown message type, try to encode blindly if keys are numbers
-                for (k, v) in m.map.iter() {
-                    if let Key::Int(i) = k {
-                        encode_field(&mut buf, *i as u32, v, None);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-    
-    buf
-}
-
-fn encode_field(buf: &mut Vec<u8>, field_num: u32, val: &CelValue, field_type: Option<&ProtoType>) {
-    match val {
-        CelValue::Int(i) => {
-            encode_varint(buf, field_num, WIRE_VARINT);
-            // Handle ZigZag if type is signed
-            let raw_val = if let Some(ProtoType::Sint32) | Some(ProtoType::Sint64) = field_type {
-                ((*i << 1) ^ (*i >> 63)) as u64
-            } else {
-                *i as u64
-            };
-            encode_raw_varint(buf, raw_val);
-        }
-        CelValue::UInt(u) => {
-            encode_varint(buf, field_num, WIRE_VARINT);
-            encode_raw_varint(buf, *u);
-        }
-        CelValue::Bool(b) => {
-            encode_varint(buf, field_num, WIRE_VARINT);
-            encode_raw_varint(buf, if *b { 1 } else { 0 });
-        }
-        CelValue::Float(f) => {
-            // Assume double/fixed64 unless specified otherwise
-            let wire_type = if let Some(ProtoType::Float) | Some(ProtoType::Fixed32) | Some(ProtoType::Sfixed32) = field_type {
-                WIRE_FIXED32
-            } else {
-                WIRE_FIXED64
-            };
-            encode_varint(buf, field_num, wire_type);
-            
-            if wire_type == WIRE_FIXED32 {
-                buf.extend_from_slice(&(*f as f32).to_le_bytes());
-            } else {
-                buf.extend_from_slice(&f.to_le_bytes());
-            }
-        }
-        CelValue::String(s) => {
-            encode_varint(buf, field_num, WIRE_LENGTH_DELIMITED);
-            encode_raw_varint(buf, s.len() as u64);
-            buf.extend_from_slice(s.as_bytes());
-        }
-        CelValue::Bytes(b) => {
-            encode_varint(buf, field_num, WIRE_LENGTH_DELIMITED);
-            encode_raw_varint(buf, b.len() as u64);
-            buf.extend_from_slice(b);
-        }
-        CelValue::List(l) => {
-            // Repeated field
-            for item in l.iter() {
-                encode_field(buf, field_num, item, field_type);
-            }
-        }
-        CelValue::Map(_) => {
-            // Nested message
-            let nested_type = if let Some(ProtoType::Message(name)) = field_type {
-                name.as_str()
-            } else {
-                ""
-            };
-            
-            let nested_bytes = encode_cel_to_proto(val, nested_type);
-            encode_varint(buf, field_num, WIRE_LENGTH_DELIMITED);
-            encode_raw_varint(buf, nested_bytes.len() as u64);
-            buf.extend_from_slice(&nested_bytes);
-        }
-        CelValue::Null => {}
-        _ => {}
-    }
-}
-
-fn encode_varint(buf: &mut Vec<u8>, field_num: u32, wire_type: u32) {
-    let key = (field_num << 3) | wire_type;
-    encode_raw_varint(buf, key as u64);
-}
-
-fn encode_raw_varint(buf: &mut Vec<u8>, mut val: u64) {
-    loop {
-        let mut byte = (val & 0x7F) as u8;
-        val >>= 7;
-        if val != 0 {
-            byte |= 0x80;
-        }
-        buf.push(byte);
-        if val == 0 {
-            break;
-        }
-    }
-}
-"#;
 
 const CEL_HELPERS: &str = r#"
 fn cel_eval(expr: &str, ctx: &Context) -> CelValue {
@@ -909,9 +629,9 @@ fn generate_view_function(
     // Collect all scoped styles from the component
     let css_rules = collect_scoped_styles(&root.nodes, &scope_class);
 
-    // Internal render function - takes proto data
+    // Internal render function - takes proto data and pre-rendered content slot
     code.push_str(&format!(
-        "\nfn render_{}(r: &mut String, proto_data: &[u8]) {{\n",
+        "\nfn render_{}(r: &mut String, proto_data: &[u8], content_html: &str) {{\n",
         fn_name
     ));
 
@@ -951,7 +671,7 @@ fn generate_view_function(
     }
 
     for node in &root.nodes {
-        generate_node_cel_scoped(code, node, 1, &scope_class, component_types)?;
+        generate_node_cel_scoped(code, node, 1, "r", &scope_class, component_types)?;
     }
 
     code.push_str("}\n");
@@ -968,7 +688,7 @@ fn generate_view_function(
     code.push_str("    };\n\n");
 
     code.push_str("    let mut out = String::new();\n");
-    code.push_str(&format!("    render_{}(&mut out, proto_data);\n", fn_name));
+    code.push_str(&format!("    render_{}(&mut out, proto_data, \"\");\n", fn_name));
     code.push_str("    let result_ptr = out.as_ptr();\n");
     code.push_str("    let result_len = out.len();\n");
     code.push_str("    mem::forget(out);\n");
@@ -982,13 +702,24 @@ fn generate_view_function(
 fn generate_node_cel(code: &mut String, node: &Node, indent: usize) -> Result<(), String> {
     // Delegate to scoped version with empty scope (no scoping)
     let empty_map = HashMap::new();
-    generate_node_cel_scoped(code, node, indent, "", &empty_map)
+    generate_node_cel_scoped(code, node, indent, "r", "", &empty_map)
 }
 
-fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope_class: &str, component_types: &HashMap<String, String>) -> Result<(), String> {
+fn generate_node_cel_scoped(
+    code: &mut String, 
+    node: &Node, 
+    indent: usize, 
+    out_var: &str,
+    scope_class: &str, 
+    component_types: &HashMap<String, String>
+) -> Result<(), String> {
     let pad = "    ".repeat(indent);
 
     match node {
+        Node::ContentSlot => {
+            code.push_str(&pad);
+            code.push_str(&format!("{}.push_str(content_html);\n", out_var));
+        }
         Node::Element(el) => {
             // Check if this is a component invocation
             // It must be in the component_types map (known components in this module)
@@ -996,7 +727,7 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
 
             if is_component {
                 // Component invocation
-                // Syntax: ComponentName `expr`
+                // Syntax: ComponentName `expr` { children }
                 let arg_val = if !el.children.is_empty() {
                     if let Node::Text(t) = &el.children[0] {
                         if t.content.starts_with('`') && t.content.ends_with('`') {
@@ -1013,6 +744,22 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
 
                 code.push_str(&pad);
                 code.push_str("{\n");
+                code.push_str(&pad);
+                
+                // Pre-render children for the content slot
+                code.push_str("    let mut invocation_content = String::new();\n");
+                for child in &el.children {
+                    // Skip the first child if it was used as the proto data argument
+                    if let Some(_) = arg_val {
+                        if let Node::Text(t) = child {
+                            if t.content.starts_with('`') && t.content.ends_with('`') {
+                                continue;
+                            }
+                        }
+                    }
+                    generate_node_cel_scoped(code, child, indent + 1, "invocation_content", scope_class, component_types)?;
+                }
+
                 code.push_str(&pad);
                 if let Some(expr) = arg_val {
                     // Pass specific data to component
@@ -1031,15 +778,17 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
                     ));
                     code.push_str(&pad);
                     code.push_str(&format!(
-                        "    render_{}(r, &encoded_data);\n",
-                        el.tag.to_lowercase()
+                        "    render_{}({}, &encoded_data, &invocation_content);\n",
+                        el.tag.to_lowercase(),
+                        out_var
                     ));
                 } else {
                     // Pass current data through
                     code.push_str(&pad);
                     code.push_str(&format!(
-                        "    render_{}(r, proto_data);\n",
-                        el.tag.to_lowercase()
+                        "    render_{}({}, proto_data, &invocation_content);\n",
+                        el.tag.to_lowercase(),
+                        out_var
                     ));
                 }
                 
@@ -1050,12 +799,12 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
 
             // Opening tag
             code.push_str(&pad);
-            code.push_str(&format!("r.push_str(\"<{}\");\n", el.tag));
+            code.push_str(&format!("{}.push_str(\"<{}\");\n", out_var, el.tag));
 
             // ID attribute
             if let Some(id) = &el.id {
                 code.push_str(&pad);
-                code.push_str(&format!("r.push_str(\" id=\\\"{}\\\"\");\n", id));
+                code.push_str(&format!("{}.push_str(\" id=\\\"{}\\\"\");\n", out_var, id));
             }
 
             // Class attribute - include scope class if element has styles
@@ -1067,7 +816,8 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
                 }
                 code.push_str(&pad);
                 code.push_str(&format!(
-                    "r.push_str(\" class=\\\"{}\\\"\");\n",
+                    "{}.push_str(\" class=\\\"{}\\\"\");\n",
+                    out_var,
                     all_classes.join(" ")
                 ));
             }
@@ -1076,11 +826,11 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
             for (key, value) in &el.attributes {
                 if value.contains('`') {
                     // Dynamic attribute with CEL
-                    generate_dynamic_attr(code, key, value, &pad)?;
+                    generate_dynamic_attr_with_ctx(code, key, value, &pad, "&ctx", out_var)?;
                 } else {
                     // Static attribute
                     code.push_str(&pad);
-                    code.push_str(&format!("r.push_str(\" {}=\\\"{}\\\"\");\n", key, value));
+                    code.push_str(&format!("{}.push_str(\" {}=\\\"{}\\\"\");\n", out_var, key, value));
                 }
             }
 
@@ -1088,7 +838,7 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
             for attr in &el.datastar {
                 let (html_attr, html_val) = datastar_attr_to_html(attr);
                 code.push_str(&pad);
-                code.push_str("r.push_str(\" ");
+                code.push_str(&format!("{}.push_str(\" ", out_var));
                 code.push_str(&html_attr);
                 if let Some(val) = html_val {
                     code.push_str("=\\\"");
@@ -1100,20 +850,20 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
 
             // Close opening tag
             code.push_str(&pad);
-            code.push_str("r.push_str(\">\");\n");
+            code.push_str(&format!("{}.push_str(\">\");\n", out_var));
 
             // Children
             for child in &el.children {
-                generate_node_cel_scoped(code, child, indent + 1, scope_class, component_types)?;
+                generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_types)?;
             }
 
             // Closing tag
             code.push_str(&pad);
-            code.push_str(&format!("r.push_str(\"</{}>\");\n", el.tag));
+            code.push_str(&format!("{}.push_str(\"</{}>\");\n", out_var, el.tag));
         }
 
         Node::Text(t) => {
-            generate_text_with_interpolation(code, &t.content, &pad)?;
+            generate_text_with_interpolation_ctx(code, &t.content, &pad, "&ctx", out_var)?;
         }
 
         Node::ControlFlow(cf) => match cf {
@@ -1129,7 +879,7 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
                 ));
 
                 for child in then_block {
-                    generate_node_cel_scoped(code, child, indent + 1, scope_class, component_types)?;
+                    generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_types)?;
                 }
 
                 code.push_str(&pad);
@@ -1138,7 +888,7 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
                 if let Some(else_nodes) = else_block {
                     code.push_str(" else {\n");
                     for child in else_nodes {
-                        generate_node_cel_scoped(code, child, indent + 1, scope_class, component_types)?;
+                        generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_types)?;
                     }
                     code.push_str(&pad);
                     code.push_str("}");
@@ -1179,7 +929,7 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
                 );
 
                 for child in body {
-                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&loop_ctx", scope_class, component_types)?;
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&loop_ctx", out_var, scope_class, component_types)?;
                 }
 
                 code.push_str(&pad);
@@ -1218,7 +968,7 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
                     ));
 
                     for child in children {
-                        generate_node_cel_scoped(code, child, indent + 2, scope_class, component_types)?;
+                        generate_node_cel_scoped(code, child, indent + 2, out_var, scope_class, component_types)?;
                     }
 
                     code.push_str(&pad);
@@ -1234,7 +984,7 @@ fn generate_node_cel_scoped(code: &mut String, node: &Node, indent: usize, scope
                     }
 
                     for child in def_nodes {
-                        generate_node_cel_scoped(code, child, indent + 2, scope_class, component_types)?;
+                        generate_node_cel_scoped(code, child, indent + 2, out_var, scope_class, component_types)?;
                     }
 
                     code.push_str(&pad);
@@ -1259,7 +1009,7 @@ fn generate_node_cel_with_ctx(
     ctx_var: &str,
 ) -> Result<(), String> {
     let empty_map = HashMap::new();
-    generate_node_cel_with_ctx_scoped(code, node, indent, ctx_var, "", &empty_map)
+    generate_node_cel_with_ctx_scoped(code, node, indent, ctx_var, "r", "", &empty_map)
 }
 
 /// Generate node with custom context and scope class for scoped styles.
@@ -1268,12 +1018,17 @@ fn generate_node_cel_with_ctx_scoped(
     node: &Node,
     indent: usize,
     ctx_var: &str,
+    out_var: &str,
     scope_class: &str,
     component_types: &HashMap<String, String>,
 ) -> Result<(), String> {
     let pad = "    ".repeat(indent);
 
     match node {
+        Node::ContentSlot => {
+            code.push_str(&pad);
+            code.push_str(&format!("{}.push_str(content_html);\n", out_var));
+        }
         Node::Element(el) => {
             // Check if this is a component invocation
             let is_component = component_types.contains_key(&el.tag);
@@ -1299,6 +1054,20 @@ fn generate_node_cel_with_ctx_scoped(
                 code.push_str("{\n");
                 code.push_str(&pad);
                 
+                // Pre-render children for the content slot
+                code.push_str("    let mut invocation_content = String::new();\n");
+                for child in &el.children {
+                    if let Some(_) = arg_val {
+                        if let Node::Text(t) = child {
+                            if t.content.starts_with('`') && t.content.ends_with('`') {
+                                continue;
+                            }
+                        }
+                    }
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, "invocation_content", scope_class, component_types)?;
+                }
+
+                code.push_str(&pad);
                 if let Some(expr) = arg_val {
                     // Pass specific data to component
                     code.push_str(&format!(
@@ -1317,15 +1086,17 @@ fn generate_node_cel_with_ctx_scoped(
                     ));
                     code.push_str(&pad);
                     code.push_str(&format!(
-                        "    render_{}(r, &encoded_data);\n",
-                        el.tag.to_lowercase()
+                        "    render_{}({}, &encoded_data, &invocation_content);\n",
+                        el.tag.to_lowercase(),
+                        out_var
                     ));
                 } else {
                     // Pass current data through
                     code.push_str(&pad);
                     code.push_str(&format!(
-                        "    render_{}(r, proto_data);\n",
-                        el.tag.to_lowercase()
+                        "    render_{}({}, proto_data, &invocation_content);\n",
+                        el.tag.to_lowercase(),
+                        out_var
                     ));
                 }
 
@@ -1335,11 +1106,11 @@ fn generate_node_cel_with_ctx_scoped(
             }
 
             code.push_str(&pad);
-            code.push_str(&format!("r.push_str(\"<{}\");\n", el.tag));
+            code.push_str(&format!("{}.push_str(\"<{}\");\n", out_var, el.tag));
 
             if let Some(id) = &el.id {
                 code.push_str(&pad);
-                code.push_str(&format!("r.push_str(\" id=\\\"{}\\\"\");\n", id));
+                code.push_str(&format!("{}.push_str(\" id=\\\"{}\\\"\");\n", out_var, id));
             }
 
             // Class attribute - include scope class if element has styles
@@ -1351,17 +1122,18 @@ fn generate_node_cel_with_ctx_scoped(
                 }
                 code.push_str(&pad);
                 code.push_str(&format!(
-                    "r.push_str(\" class=\\\"{}\\\"\");\n",
+                    "{}.push_str(\" class=\\\"{}\\\"\");\n",
+                    out_var,
                     all_classes.join(" ")
                 ));
             }
 
             for (key, value) in &el.attributes {
                 if value.contains('`') {
-                    generate_dynamic_attr_with_ctx(code, key, value, &pad, ctx_var)?;
+                    generate_dynamic_attr_with_ctx(code, key, value, &pad, ctx_var, out_var)?;
                 } else {
                     code.push_str(&pad);
-                    code.push_str(&format!("r.push_str(\" {}=\\\"{}\\\"\");\n", key, value));
+                    code.push_str(&format!("{}.push_str(\" {}=\\\"{}\\\"\");\n", out_var, key, value));
                 }
             }
 
@@ -1369,7 +1141,7 @@ fn generate_node_cel_with_ctx_scoped(
             for attr in &el.datastar {
                 let (html_attr, html_val) = datastar_attr_to_html(attr);
                 code.push_str(&pad);
-                code.push_str("r.push_str(\" ");
+                code.push_str(&format!("{}.push_str(\" ", out_var));
                 code.push_str(&html_attr);
                 if let Some(val) = html_val {
                     code.push_str("=\\\"");
@@ -1380,18 +1152,18 @@ fn generate_node_cel_with_ctx_scoped(
             }
 
             code.push_str(&pad);
-            code.push_str("r.push_str(\">\");\n");
+            code.push_str(&format!("{}.push_str(\">\");\n", out_var));
 
             for child in &el.children {
-                generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, scope_class, component_types)?;
+                generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_types)?;
             }
 
             code.push_str(&pad);
-            code.push_str(&format!("r.push_str(\"</{}>\");\n", el.tag));
+            code.push_str(&format!("{}.push_str(\"</{}>\");\n", out_var, el.tag));
         }
 
         Node::Text(t) => {
-            generate_text_with_interpolation_ctx(code, &t.content, &pad, ctx_var)?;
+            generate_text_with_interpolation_ctx(code, &t.content, &pad, ctx_var, out_var)?;
         }
 
         Node::ControlFlow(cf) => match cf {
@@ -1408,7 +1180,7 @@ fn generate_node_cel_with_ctx_scoped(
                 ));
 
                 for child in then_block {
-                    generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, scope_class, component_types)?;
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_types)?;
                 }
 
                 code.push_str(&pad);
@@ -1417,7 +1189,7 @@ fn generate_node_cel_with_ctx_scoped(
                 if let Some(else_nodes) = else_block {
                     code.push_str(" else {\n");
                     for child in else_nodes {
-                        generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, scope_class, component_types)?;
+                        generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_types)?;
                     }
                     code.push_str(&pad);
                     code.push_str("}");
@@ -1459,7 +1231,7 @@ fn generate_node_cel_with_ctx_scoped(
                 );
 
                 for child in body {
-                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&inner_ctx", scope_class, component_types)?;
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&inner_ctx", out_var, scope_class, component_types)?;
                 }
 
                 code.push_str(&pad);
@@ -1498,7 +1270,7 @@ fn generate_node_cel_with_ctx_scoped(
                     ));
 
                     for child in children {
-                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, scope_class, component_types)?;
+                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, out_var, scope_class, component_types)?;
                     }
 
                     code.push_str(&pad);
@@ -1514,7 +1286,7 @@ fn generate_node_cel_with_ctx_scoped(
                     }
 
                     for child in def_nodes {
-                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, scope_class, component_types)?;
+                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, out_var, scope_class, component_types)?;
                     }
 
                     code.push_str(&pad);
@@ -1530,16 +1302,13 @@ fn generate_node_cel_with_ctx_scoped(
     Ok(())
 }
 
-fn generate_dynamic_attr(code: &mut String, key: &str, value: &str, pad: &str) -> Result<(), String> {
-    generate_dynamic_attr_with_ctx(code, key, value, pad, "&ctx")
-}
-
 fn generate_dynamic_attr_with_ctx(
     code: &mut String,
     key: &str,
     value: &str,
     pad: &str,
     ctx_var: &str,
+    out_var: &str,
 ) -> Result<(), String> {
     // For boolean attributes like checked=`is_checked`
     let is_boolean_attr = matches!(
@@ -1568,23 +1337,19 @@ fn generate_dynamic_attr_with_ctx(
             ctx_var
         ));
         code.push_str(pad);
-        code.push_str(&format!("    r.push_str(\" {}\");\n", key));
+        code.push_str(&format!("    {}.push_str(\" {}\");\n", out_var, key));
         code.push_str(pad);
         code.push_str("}\n");
     } else {
         // Dynamic value
         code.push_str(pad);
-        code.push_str(&format!("r.push_str(\" {}=\\\"\");\n", key));
-        generate_text_with_interpolation_ctx(code, value, pad, ctx_var)?;
+        code.push_str(&format!("{}.push_str(\" {}=\\\"\");\n", out_var, key));
+        generate_text_with_interpolation_ctx(code, value, pad, ctx_var, out_var)?;
         code.push_str(pad);
-        code.push_str("r.push_str(\"\\\"\");\n");
+        code.push_str(&format!("{}.push_str(\"\\\"\");\n", out_var));
     }
 
     Ok(())
-}
-
-fn generate_text_with_interpolation(code: &mut String, content: &str, pad: &str) -> Result<(), String> {
-    generate_text_with_interpolation_ctx(code, content, pad, "&ctx")
 }
 
 fn generate_text_with_interpolation_ctx(
@@ -1592,6 +1357,7 @@ fn generate_text_with_interpolation_ctx(
     content: &str,
     pad: &str,
     ctx_var: &str,
+    out_var: &str,
 ) -> Result<(), String> {
     let parts: Vec<&str> = content.split('`').collect();
 
@@ -1600,7 +1366,7 @@ fn generate_text_with_interpolation_ctx(
             // Static text
             if !part.is_empty() {
                 code.push_str(pad);
-                code.push_str(&format!("r.push_str(\"{}\");\n", escape_string(part)));
+                code.push_str(&format!("{}.push_str(\"{}\");\n", out_var, escape_string(part)));
             }
         } else {
             // CEL expression
@@ -1613,14 +1379,16 @@ fn generate_text_with_interpolation_ctx(
                     // Extract inner expression from raw(...)
                     let inner = &trimmed[4..trimmed.len() - 1];
                     code.push_str(&format!(
-                        "r.push_str(&cel_to_string(&cel_eval(\"{}\", {})));\n",
+                        "{}.push_str(&cel_to_string(&cel_eval(\"{}\", {})));\n",
+                        out_var,
                         escape_string(inner),
                         ctx_var
                     ));
                 } else {
                     // Normal expression - HTML escaped
                     code.push_str(&format!(
-                        "r.push_str(&cel_eval_safe(\"{}\", {}));\n",
+                        "{}.push_str(&cel_eval_safe(\"{}\", {}));\n",
+                        out_var,
                         escape_string(part),
                         ctx_var
                     ));
@@ -1729,7 +1497,7 @@ el {
         let rust_code = generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
         assert!(rust_code.contains("cel_interpreter"));
-        assert!(rust_code.contains("r.push_str(\"<div\")"));
+        assert!(rust_code.contains(".push_str(\"<div\")"));
         assert!(rust_code.contains("Hello"));
     }
 

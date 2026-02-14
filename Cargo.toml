@@ -18,3 +18,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "hudlc"
 path = "src/main.rs"
+
+[[example]]
+name = "debug-kdl"
+path = "scripts/debug-kdl.rs"
