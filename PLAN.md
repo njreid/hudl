@@ -56,7 +56,7 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 
 - [x] Configure `cel-rust` for `wasm32-unknown-unknown` target
 - [x] Implement CEL evaluation context creation from input data
-- [x] Handle scoped variables in `each` loops (item binding, `_index`)
+- [x] Handle scoped variables in `each` loops (item binding, `<itemvar>_idx`)
 - [x] Implement `raw()` custom function for unescaped HTML
 
 ### 4.3 CEL Code Generation
@@ -268,7 +268,7 @@ The switch value is bound as `_switch_value` in the CEL context for case evaluat
 each item `items` {
     // CEL context gains:
     // - item: current element
-    // - _index: zero-based index
+    // - item_idx: zero-based index
 }
 ```
 

@@ -924,9 +924,10 @@ fn generate_node_cel_scoped(
                     binding
                 ));
                 code.push_str(&pad);
-                code.push_str(
-                    "        let _ = loop_ctx.add_variable(\"_index\", CelValue::Int(_idx as i64));\n",
-                );
+                code.push_str(&format!(
+                    "        let _ = loop_ctx.add_variable(\"{}_idx\", CelValue::Int(_idx as i64));\n",
+                    binding
+                ));
 
                 for child in body {
                     generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&loop_ctx", out_var, scope_class, component_types)?;
@@ -1226,9 +1227,10 @@ fn generate_node_cel_with_ctx_scoped(
                     binding
                 ));
                 code.push_str(&pad);
-                code.push_str(
-                    "        let _ = inner_ctx.add_variable(\"_index\", CelValue::Int(_idx as i64));\n",
-                );
+                code.push_str(&format!(
+                    "        let _ = inner_ctx.add_variable(\"{}_idx\", CelValue::Int(_idx as i64));\n",
+                    binding
+                ));
 
                 for child in body {
                     generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&inner_ctx", out_var, scope_class, component_types)?;

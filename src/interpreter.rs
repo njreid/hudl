@@ -298,7 +298,7 @@ fn render_control_flow(
                 for (index, item) in items.iter().enumerate() {
                     let mut child_ctx = ctx.child();
                     child_ctx.add_value(binding, item.clone());
-                    child_ctx.add_int("_index", index as i64);
+                    child_ctx.add_int(&format!("{}_idx", binding), index as i64);
 
                     // If the item is a map, also add its fields directly
                     // (some templates access fields directly on the binding)
@@ -490,7 +490,7 @@ message Data {
 // data: Data
 el {
     each item `items` {
-        span `_index`
+        span `item_idx`
     }
 }
 "#;

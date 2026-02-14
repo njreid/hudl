@@ -352,7 +352,7 @@ fn test_codegen_each_with_index() {
     let input = r#"
 el {
     each item `items` {
-        span `_index`
+        span `item_idx`
     }
 }
     "#;
@@ -364,9 +364,7 @@ el {
     let rust_code = codegen_cel::generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
         assert!(rust_code.contains("for (_idx, _item) in list.iter().enumerate()"));
-
-        assert!(rust_code.contains("let _ = loop_ctx.add_variable(\"_index\""));
-
+        assert!(rust_code.contains("let _ = loop_ctx.add_variable(\"item_idx\""));
     }
 
     

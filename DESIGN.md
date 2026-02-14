@@ -403,12 +403,12 @@ Inside an `each` block:
 | Variable | Description |
 |----------|-------------|
 | `<binding>` | Current item |
-| `_index` | Zero-based index (int) |
+| `<binding>_idx` | Zero-based index (int) |
 
 ```kdl
 each user `users` {
     tr {
-        td `_index + 1`
+        td `user_idx + 1`
         td `user.name`
     }
 }

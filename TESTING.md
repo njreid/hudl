@@ -69,7 +69,7 @@ Dev mode template interpreter covering the full rendering surface. Uses a
 **Control flow:**
 
 - `test_render_each_loop` — iterate over repeated field
-- `test_render_each_with_index` — `_index` variable available in loop
+- `test_render_each_with_index` — `<itemvar>_idx` variable available in loop
 - `test_render_switch_enum` — switch on enum field, correct case rendered
 - `test_render_switch_default` — default case when no match
 - `test_render_nested_if` — if inside if

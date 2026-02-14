@@ -136,13 +136,13 @@ if `size(items) == 0` {
 
 #### Each (Iterators)
 
-Iterates over a collection. Inside the block, the binding name and `_index` are available.
+Iterates over a collection. Inside the block, the binding name and `<itemvar>_idx` are available.
 
 ```kdl
 // data: NavData
 each item `nav_items` {
     li {
-        span "Item #`_index`: "
+        span "Item #`item_idx`: "
         a href=`item.url` `item.label`
     }
 }
