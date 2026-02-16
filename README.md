@@ -1,4 +1,4 @@
-# Hudl: The WASM-Native KDL Templating Language
+# Hudl: Datastar + KDL-based Templates, with tasty tooling
 
 **Hudl** is a type-safe templating language that compiles KDL (v2) document structures into high-performance **WebAssembly (WASM)** modules. It uses **Protocol Buffers** for data contracts and **CEL (Common Expression Language)** for expressions, and is designed to be easily embedded in Go applications using **wazero**.
 
@@ -19,6 +19,16 @@
 * **Datastar Integration**: First-class support for the Datastar hypermedia framework.
 
 ---
+
+## What does this frankeni-beast look like?
+
+Pretty nice, with the tree-sitter grammar highlighting and dedicated LSP:
+
+![highlight](./highlight_sample.png)
+
+## Inspiration
+
+If you _abhor_ reading (let alone typing) , and enjoy DOM-defining DSLes like Pug, Stylus and Gomponents, you might get a kick out of Hudl.
 
 ## Language Reference
 
@@ -196,8 +206,8 @@ div {
 
 Hudl provides advanced syntax highlighting via Tree-sitter, with intentional color differentiation between backend and frontend logic:
 
-*   **Backend (CEL)**: Anything contained inside backticks (`` `...` ``) is highlighted as backend code. These expressions are evaluated by the Go/WASM runtime.
-*   **Frontend (Datastar)**: Properties starting with `~` and the special `~ { }` block are highlighted as frontend expressions. These run in the browser via the Datastar framework.
+* **Backend (CEL)**: Anything contained inside backticks (`` `...` ``) is highlighted as backend code. These expressions are evaluated by the Go/WASM runtime.
+* **Frontend (Datastar)**: Properties starting with `~` and the special `~ { }` block are highlighted as frontend expressions. These run in the browser via the Datastar framework.
 
 ### Combined Expressions
 
@@ -208,7 +218,7 @@ div {
     ~ {
         // Initialize frontend signal with backend data
         let:user_id `user.id`
-        
+
         // Dynamic frontend action using backend-provided URL
         on:click "@get('`api_base`/users/`user.id`')"
     }
@@ -265,6 +275,7 @@ cd my-app
 ```
 
 This creates a standard scaffold with:
+
 * `main.go`: A Go server using `chi` and `hudl` runtime.
 * `views/`: Directory for your `.hudl` templates.
 * `public/`: Static assets, including `datastar.js`.
@@ -284,21 +295,24 @@ hudl dev
 ```
 
 This command:
-1.  Generates Go wrappers for your views.
-2.  Starts the LSP Dev Server in the background.
-3.  Runs your Go application with `HUDL_DEV=1`.
+
+1. Generates Go wrappers for your views.
+2. Starts the LSP Dev Server in the background.
+3. Runs your Go application with `HUDL_DEV=1`.
 
 ### Manual Setup
 
 If you prefer manual control:
 
 1. **Start the LSP Dev Server**:
+
    ```bash
    hudl-lsp --dev-server --port 9999 --watch ./views
    ```
 
 2. **Configure the Go Runtime**:
    Set the environment variables before running your app:
+
    ```bash
    export HUDL_DEV=1
    export HUDL_DEV_ADDR=localhost:9999
