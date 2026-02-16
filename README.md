@@ -11,18 +11,18 @@
 
 ## Features
 
-* **HTML Mapping**: KDL nodes map directly to HTML tags.
+* **HTML & CSS Mapping**: KDL nodes map directly to HTML tags and CSS directives.
 * **WASM Powered**: Templates are compiled to portable, secure WebAssembly instructions.
 * **KDL v2**: Fully compliant KDL v2 support via `kdl-rs`.
 * **Type Safety**: Data contracts defined via Protocol Buffers (proto3).
 * **Expressions**: High-performance evaluation via CEL (Common Expression Language).
-* **Datastar Integration**: First-class support for the Datastar hypermedia framework.
+* **Datastar Integration**: First-class support for the Datastar hypermedia framework via tilde shortcuts (data-* => ~) 
 
 ---
 
-## What does this frankeni-beast look like?
+## What does this franken-beast look like?
 
-Pretty nice, with the tree-sitter grammar highlighting and dedicated LSP:
+IMHO pretty nice, with the tree-sitter grammar highlighting and dedicated LSP in Helix:
 
 ![highlight](./highlight_sample.png)
 
