@@ -6,7 +6,9 @@ message ButtonData {
 */
 
 // name: StyledButton
-// data: ButtonData
+// param: string label
+// param: bool disabled false
+
 el {
   // Scoped styles: the generated class (h-*) merges with existing classes
   button.btn.btn-cancel `label` {

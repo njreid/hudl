@@ -51,7 +51,7 @@ message WrongData {
 }
 */
 // name: MismatchView
-// data: WrongData
+// param: WrongData data
 
 el {
     div {

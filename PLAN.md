@@ -98,9 +98,9 @@ Hudl uses **Protocol Buffers** for type-safe data contracts and **CEL (Common Ex
 
 ### 5.3 Component Metadata
 
-- [x] Parse `// name:` and `// data:` comments
-- [x] Map `// data:` type to proto message definition
-- [x] Validate component data types exist in proto definitions
+- [x] Parse `// name:` and `// param:` comments
+- [x] Map `// param:` type to proto message definition
+- [x] Validate component parameter types exist in proto definitions
 
 ### 5.4 Go Runtime Updates
 

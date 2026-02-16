@@ -8,7 +8,10 @@ message LayoutData {
 */
 
 // name: AppLayout
-// data: LayoutData
+// param: string title
+// param: string user_name
+// param: bool is_logged_in
+
 el {
   html lang="en" {
     head {

@@ -10,7 +10,8 @@ message FeatureListData { repeated Feature features = 1; }
 */
 
 // name: FeatureList
-// data: FeatureListData
+// param: repeated Feature features
+
 el {
   section#features.py-20 {
     .container.mx-auto.px-4 {

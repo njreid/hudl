@@ -25,6 +25,7 @@ use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use cel_interpreter::{Value as CelValue};
 use cel_interpreter::objects::{Key, Map as CelMap};
+use crate::ast::Param;
 
 /// A parsed proto schema containing messages and enums.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -359,7 +360,7 @@ impl ProtoSchema {
     }
 
     /// Parse a type string into a ProtoType.
-    fn parse_type(type_str: &str) -> ProtoType {
+    pub fn parse_type(type_str: &str) -> ProtoType {
         match type_str {
             "double" => ProtoType::Double,
             "float" => ProtoType::Float,
@@ -730,7 +731,7 @@ message Config {
 /** import "base.proto"; */
 
 // name: Dashboard
-// data: DashboardData
+// param: DashboardData data
 
 /**
 message DashboardData {
@@ -1161,6 +1162,67 @@ impl ProtoSchema {
     /// Decode a proto message into a CEL Map value using schema information.
     pub fn decode_message_to_cel(&self, data: &[u8], message_name: &str) -> CelValue {
         self.decode_message_to_cel_ext(data, message_name, false)
+    }
+
+    /// Decode multiple params from a proto message where fields are mapped by number (1, 2, 3...)
+    pub fn decode_params_to_cel(&self, data: &[u8], params: &[Param]) -> HashMap<String, CelValue> {
+        let fields = decode_raw_message(data);
+        let mut result = HashMap::new();
+
+        for (i, param) in params.iter().enumerate() {
+            let field_num = (i + 1) as u32;
+            let field_type = Self::parse_type(&param.type_name);
+            
+            // Refine type
+            let mut refined_type = field_type.clone();
+            if let ProtoType::Message(ref name) = refined_type {
+                if self.enums.contains_key(name) {
+                    refined_type = ProtoType::Enum(name.clone());
+                }
+            }
+
+            let val = if let Some(raw_val) = fields.get(&field_num) {
+                if param.repeated {
+                    match raw_val {
+                        RawProtoValue::Repeated(items) => {
+                            CelValue::List(Arc::new(items.iter().map(|i| self.decode_value_to_cel_ext(i, &refined_type, true)).collect()))
+                        }
+                        single => {
+                            CelValue::List(Arc::new(vec![self.decode_value_to_cel_ext(single, &refined_type, true)]))
+                        }
+                    }
+                } else {
+                    self.decode_value_to_cel_ext(raw_val, &refined_type, true)
+                }
+            } else {
+                // Use default value if provided
+                if let Some(ref default) = param.default_value {
+                    // Simple parsing for scalars and strings
+                    if refined_type == ProtoType::String {
+                        CelValue::String(Arc::new(default.clone()))
+                    } else if refined_type == ProtoType::Bool {
+                        CelValue::Bool(default == "true")
+                    } else if refined_type.cel_type() == "int" {
+                        CelValue::Int(default.parse().unwrap_or(0))
+                    } else if refined_type.cel_type() == "double" {
+                        CelValue::Float(default.parse().unwrap_or(0.0))
+                    } else {
+                        // Fallback to proto3 default
+                        self.get_default_value_ext(&refined_type, true)
+                    }
+                } else {
+                    // Missing field - use default value for proto3 semantics
+                    if param.repeated {
+                        CelValue::List(Arc::new(Vec::new()))
+                    } else {
+                        self.get_default_value_ext(&refined_type, true)
+                    }
+                }
+            };
+            result.insert(param.name.clone(), val);
+        }
+
+        result
     }
 
     /// Extended decode with options.

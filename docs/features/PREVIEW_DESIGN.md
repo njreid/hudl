@@ -23,12 +23,12 @@ When in "Dev Mode" (`HUDL_DEV=1`), the LSP dev server automatically injects a sm
 ```html
 <script>
   (function() {
-    const ev = new EventSource('/events');
+    const ev = new EventSource('http://localhost:9999/__hudl/live_reload');
     ev.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
         if (data.type === 'reload') {
-          console.log('Hudl: Reloading page...');
+          console.log('Hudl: File change detected, reloading...');
           location.reload();
         }
       } catch(err) {}

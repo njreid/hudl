@@ -171,19 +171,19 @@ flowchart TB
 A Hudl template file (`.hudl`) consists of:
 
 1. **Proto definitions** - Type declarations in `/**` comments
-2. **Component metadata** - Name and data type in `//` comments
+2. **Component metadata** - Name and parameters in `//` comments
 3. **Element tree** - KDL nodes representing HTML structure
 
 ```kdl
 /** import "models/user.proto"; */
 
 // name: UserCard
-// data: User
+// param: User user
 
 el {
     div.card {
-        h2 `name`
-        p `email`
+        h2 `user.name`
+        p `user.email`
     }
 }
 ```
@@ -230,17 +230,25 @@ enum Status {
 
 ### Component Metadata
 
-Components declare their name and expected data type:
+Components declare their name and parameters:
 
 ```kdl
 // name: ComponentName
-// data: MessageType
+// param: Type name [default]
 ```
 
 - `name`: Exported function name in WASM (PascalCase recommended)
-- `data`: Proto message type (can be fully qualified: `myapp.models.User`)
+- `param`: Zero or more parameters. Type can be a proto scalar (`string`, `int32`, etc.) or a message type.
 
-Components with no data requirement omit the `// data:` line.
+Example with multiple params:
+
+```kdl
+// name: Header
+// param: string title "Welcome"
+// param: User user
+```
+
+Components with no parameters omit the `// param:` lines.
 
 ---
 
@@ -487,13 +495,13 @@ flowchart TB
 ```kdl
 // In parent component
 each user `users` {
-    UserCard `user`
+    UserCard user=`user`
 }
 ```
 
-Syntax: `ComponentName \`\``
+Syntax: `ComponentName key=value`
 
-The CEL expression must evaluate to a value compatible with the target component's `// data:` type.
+The CEL expression must evaluate to a value compatible with the target component's parameter type.
 
 ### Type Checking
 
@@ -506,24 +514,24 @@ message Order { string id = 1; }
 */
 
 // name: UserCard
-// data: User
+// param: User user
 
 // name: OrderList
-// data: Order
+// param: Order order
 
 el {
     // ERROR: User is not compatible with Order
-    OrderList `user`
+    OrderList order=`user`
 }
 ```
 
-### Components Without Data
+### Components Without Parameters
 
-Components that take no data are invoked without an argument:
+Components that take no parameters are invoked without arguments:
 
 ```kdl
 // name: Footer
-// (no data declaration)
+// (no param declaration)
 
 el {
     footer {
@@ -928,9 +936,9 @@ file        = proto_block* metadata element
 
 proto_block = "/**" proto3_syntax "*/"
 
-metadata    = name_decl data_decl?
+metadata    = name_decl param_decl*
 name_decl   = "// name:" identifier
-data_decl   = "// data:" type_path
+param_decl  = "// param:" type_path identifier (string | number | boolean)?
 
 element     = "el" "{" node* "}"
 
@@ -955,7 +963,7 @@ default_node = "default" "{" node* "}"
 
 each_node   = "each" identifier cel_expr "{" node* "}"
 
-component_node = identifier cel_expr?
+component_node = identifier (identifier "=" attr_value)*
 
 cel_expr    = "`" cel_syntax "`"
 

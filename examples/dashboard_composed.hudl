@@ -26,14 +26,16 @@ import {
   ./stat_card
 }
 // name: DashboardComposed
-// data: DashboardComposedData
+// param: repeated StatCardData stats
+// param: repeated Transaction transactions
+
 el {
   #dashboard-view {
     h1.text-3xl.font-bold.mb-6 "Overview"
     // Render stat cards using component composition
     .grid.grid-cols-1.md:grid-cols-3.gap-6.mb-8 {
       each stat `stats` {
-        StatCard `stat`
+        StatCard label=`stat.label` value=`stat.value` trend=`stat.trend`
       }
     }
     h2.text-xl.font-semibold.mb-4 "Recent Transactions"

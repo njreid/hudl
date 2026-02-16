@@ -96,7 +96,6 @@ impl Backend {
         let line_scopes = scope::build_scopes_from_content(
             content,
             &schema,
-            metadata.data_type.as_deref(),
         );
 
         // Pre-load packages for all params
@@ -107,28 +106,9 @@ impl Backend {
         diagnostics.extend(expr_diagnostics);
 
         // Check switch exhaustiveness (use root scope for now)
-        let root_scope = scope::build_root_scope(&schema, metadata.data_type.as_deref());
+        let root_scope = scope::build_root_scope(&schema, &metadata.params);
         let switch_diagnostics = self.check_switch_exhaustiveness(content, &root_scope, &schema).await;
         diagnostics.extend(switch_diagnostics);
-
-        // Validate component data type exists if specified
-        if let Some(dt) = &metadata.data_type {
-            if schema.get_message(dt).is_none() && schema.get_enum(dt).is_none() {
-                // If it's not a primitive type either
-                let primitives = ["string", "int32", "int64", "bool", "float", "double"];
-                if !primitives.contains(&dt.as_str()) {
-                    diagnostics.push(Diagnostic {
-                        range: Range {
-                            start: Position { line: 0, character: 0 }, // TODO: Better position
-                            end: Position { line: 0, character: 10 },
-                        },
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        message: format!("Unknown data type '{}' specified in // data: comment.", dt),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
 
         // Check component invocations
         let component_diagnostics = self.validate_component_invocations(content, &line_scopes, &schema).await;
@@ -174,47 +154,58 @@ impl Backend {
                     if let Some(info) = registry.get(name) {
                         // This is a known component!
                         
-                        // Check if it expects data
-                        if let Some(expected_type) = &info.data_type {
-                            // Check if an argument was passed
-                            let entries: Vec<_> = node.entries().iter().collect();
-                            if entries.is_empty() {
-                                // No data passed to component that expects it
-                                let line = node.span().offset();
-                                let line_num = content[..line].lines().count() as u32;
-                                diagnostics.push(Diagnostic {
-                                    range: Range {
-                                        start: Position { line: line_num, character: 0 },
-                                        end: Position { line: line_num, character: name.len() as u32 },
-                                    },
-                                    severity: Some(DiagnosticSeverity::ERROR),
-                                    message: format!("Component '{}' expects data of type '{}' but none was provided.", name, expected_type),
-                                    ..Default::default()
-                                });
-                            } else {
-                                // Data was passed - check its type
-                                let arg_val = entries[0].value().as_string()
-                                    .map(|s| s.trim_matches('`').to_string());
-                                
-                                if let Some(expr_str) = arg_val {
-                                    let line = node.span().offset();
+                        // Check for missing required params
+                        let mut missing = Vec::new();
+                        for param in &info.params {
+                            if !node.entries().iter().any(|p| p.name().map_or(false, |n| n.value() == param.name)) && param.default_value.is_none() {
+                                missing.push(param.name.clone());
+                            }
+                        }
+
+                        if !missing.is_empty() {
+                            let line = node.span().offset();
+                            let line_num = content[..line].lines().count() as u32;
+                            diagnostics.push(Diagnostic {
+                                range: Range {
+                                    start: Position { line: line_num, character: 0 },
+                                    end: Position { line: line_num, character: name.len() as u32 },
+                                },
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                message: format!("Component '{}' is missing required parameters: {}", name, missing.join(", ")),
+                                ..Default::default()
+                            });
+                        }
+
+                        // Check types of provided params
+                        for entry in node.entries() {
+                            if let Some(prop_name) = entry.name() {
+                                let key = prop_name.value();
+                                if let Some(param) = info.params.iter().find(|p| p.name == key) {
+                                    // Validate type
+                                    let val = entry.value();
+                                    let line = entry.span().offset();
                                     let line_num = content[..line].lines().count() as u32;
                                     let scope = scope::get_scope_for_line(line_scopes, line_num);
-                                    
-                                    // Resolve the type of the expression
-                                    if let Some(actual_type) = infer_expr_type(&expr_str, &scope, schema) {
-                                        // Compare CEL types for simple compatibility check
-                                        let actual_cel = actual_type.cel_type();
-                                        if actual_cel != *expected_type {
-                                            diagnostics.push(Diagnostic {
-                                                range: Range {
-                                                    start: Position { line: line_num, character: 0 },
-                                                    end: Position { line: line_num, character: (name.len() + expr_str.len() + 3) as u32 },
-                                                },
-                                                severity: Some(DiagnosticSeverity::ERROR),
-                                                message: format!("Type mismatch: Component '{}' expects '{}', but got '{}'.", name, expected_type, actual_cel),
-                                                ..Default::default()
-                                            });
+
+                                    if let Some(s) = val.as_string() {
+                                        if s.contains('`') {
+                                            // CEL expression
+                                            let expr = s.trim_matches('`');
+                                            if let Some(actual_type) = infer_expr_type(expr, &scope, schema) {
+                                                let expected_type = hudlc::proto::ProtoSchema::parse_type(&param.type_name);
+                                                // Simple name-based comparison for now
+                                                if actual_type.cel_type() != expected_type.cel_type() {
+                                                     diagnostics.push(Diagnostic {
+                                                        range: Range {
+                                                            start: Position { line: line_num, character: 0 }, 
+                                                            end: Position { line: line_num, character: 10 },
+                                                        },
+                                                        severity: Some(DiagnosticSeverity::ERROR),
+                                                        message: format!("Type mismatch for param '{}': expected '{}', got '{}'", key, expected_type.cel_type(), actual_type.cel_type()),
+                                                        ..Default::default()
+                                                    });
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -354,7 +345,7 @@ impl Backend {
             if let Some(diag) = exhaustiveness::check_switch_with_proto(
                 switch_info,
                 schema,
-                metadata.data_type.as_deref(),
+                &metadata.params,
             ) {
                 diagnostics.push(diag);
                 continue;

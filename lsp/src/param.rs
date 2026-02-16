@@ -2,24 +2,24 @@
 //!
 //! Extracts:
 //! - Proto definitions from `/**` comment blocks
-//! - Component metadata from `// name:` and `// data:` comments
+//! - Component metadata from `// name:` and `// param:` comments
 //!
 //! Example:
 //! ```hudl
 //! /**
 //! import "models/user.proto";
 //!
-//! message UserCardData {
+//! message UserData {
 //!     User user = 1;
 //!     bool show_email = 2;
 //! }
 //! */
 //!
 //! // name: UserCard
-//! // data: UserCardData
+//! // param: UserData data
 //!
 //! el {
-//!     div `user.name`
+//!     div `data.user.name`
 //! }
 //! ```
 
@@ -44,8 +44,9 @@ pub struct ProtoDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamDef {
     pub name: String,
-    pub type_path: String,
-    pub package: Option<String>,
+    pub type_name: String,
+    pub repeated: bool,
+    pub default_value: Option<String>,
 }
 
 /// An import from `// import:` comments
@@ -60,8 +61,6 @@ pub struct ImportDef {
 pub struct ViewMetadata {
     /// Component name from `// name:` comment
     pub name: Option<String>,
-    /// Data type from `// data:` comment
-    pub data_type: Option<String>,
     /// Proto imports from `/** import "..."; */`
     pub proto_imports: Vec<ProtoImport>,
     /// Inline proto definitions
@@ -76,26 +75,34 @@ pub struct ViewMetadata {
 pub fn extract_metadata(content: &str) -> ViewMetadata {
     let mut metadata = ViewMetadata::default();
 
-    // Extract name and data type from comments
+    // Extract name from comments
     let name_re = Regex::new(r"//\s*name:\s*(\w+)").unwrap();
-    let data_re = Regex::new(r"//\s*data:\s*([\w.]+)").unwrap();
-    let param_re = Regex::new(r"//\s*param:\s*(\w+)\s+([\w./]+)").unwrap();
+    // param: [repeated] <type> <name> [default]
+    let param_re = Regex::new(r#"//\s*param:\s*(repeated\s+)?([\w.]+)\s+(\w+)(?:\s+(.*))?"#).unwrap();
     let import_re = Regex::new(r"//\s*import:\s*(\w+)\s+(\S+)").unwrap();
 
     for line in content.lines() {
         if let Some(caps) = name_re.captures(line) {
             metadata.name = Some(caps[1].to_string());
         }
-        if let Some(caps) = data_re.captures(line) {
-            metadata.data_type = Some(caps[1].to_string());
-        }
         if let Some(caps) = param_re.captures(line) {
-            let type_path = caps[2].to_string();
-            let package = type_path.rfind('.').map(|i| type_path[..i].to_string());
+            let repeated = caps.get(1).is_some();
+            let type_name = caps[2].to_string();
+            let name = caps[3].to_string();
+            let default_value = caps.get(4).map(|m| {
+                let s = m.as_str().trim();
+                if s.starts_with('"') && s.ends_with('"') {
+                    s[1..s.len()-1].to_string()
+                } else {
+                    s.to_string()
+                }
+            });
+            
             metadata.params.push(ParamDef {
-                name: caps[1].to_string(),
-                type_path,
-                package,
+                name,
+                type_name,
+                repeated,
+                default_value,
             });
         }
         if let Some(caps) = import_re.captures(line) {
@@ -115,7 +122,7 @@ pub fn extract_metadata(content: &str) -> ViewMetadata {
 /// Get the fully qualified type for a param definition
 #[allow(dead_code)]
 pub fn qualified_type(param: &ParamDef) -> String {
-    param.type_path.clone()
+    param.type_name.clone()
 }
 
 /// Extract proto blocks from `/**` comments
@@ -150,12 +157,6 @@ fn extract_proto_blocks(content: &str, metadata: &mut ViewMetadata) {
     }
 }
 
-/// Get the fully qualified type name for the data type
-#[allow(dead_code)]
-pub fn resolve_data_type(metadata: &ViewMetadata) -> Option<String> {
-    metadata.data_type.clone()
-}
-
 /// Check if a message type is defined inline
 #[allow(dead_code)]
 pub fn is_inline_type(metadata: &ViewMetadata, type_name: &str) -> bool {
@@ -174,18 +175,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_name_and_data() {
+    fn test_extract_name_and_param() {
         let content = r#"
 // name: Dashboard
-// data: DashboardData
+// param: DashboardData data
 
 el {
-    div `revenue_formatted`
+    div `data.revenue_formatted`
 }
 "#;
         let metadata = extract_metadata(content);
         assert_eq!(metadata.name, Some("Dashboard".to_string()));
-        assert_eq!(metadata.data_type, Some("DashboardData".to_string()));
+        assert_eq!(metadata.params.len(), 1);
+        assert_eq!(metadata.params[0].name, "data");
+        assert_eq!(metadata.params[0].type_name, "DashboardData");
     }
 
     #[test]
@@ -194,10 +197,10 @@ el {
 /** import "models/user.proto"; */
 
 // name: UserCard
-// data: User
+// param: User user
 
 el {
-    div `name`
+    div `user.name`
 }
 "#;
         let metadata = extract_metadata(content);
@@ -214,7 +217,7 @@ import "models/order.proto";
 */
 
 // name: OrderList
-// data: OrderListData
+// param: OrderListData data
 
 el { }
 "#;
@@ -235,10 +238,10 @@ message DashboardData {
 */
 
 // name: Dashboard
-// data: DashboardData
+// param: DashboardData data
 
 el {
-    div `revenue_formatted`
+    div `data.revenue_formatted`
 }
 "#;
         let metadata = extract_metadata(content);
@@ -264,10 +267,10 @@ message Transaction {
 */
 
 // name: TransactionRow
-// data: Transaction
+// param: Transaction tx
 
 el {
-    switch `status` {
+    switch `tx.status` {
         case STATUS_ACTIVE { span "Active" }
         default { span "Unknown" }
     }
@@ -282,7 +285,7 @@ el {
     }
 
     #[test]
-    fn test_no_data_type() {
+    fn test_no_params() {
         let content = r#"
 // name: Footer
 
@@ -294,22 +297,22 @@ el {
 "#;
         let metadata = extract_metadata(content);
         assert_eq!(metadata.name, Some("Footer".to_string()));
-        assert_eq!(metadata.data_type, None);
+        assert_eq!(metadata.params.len(), 0);
     }
 
     #[test]
-    fn test_fully_qualified_data_type() {
+    fn test_fully_qualified_param_type() {
         let content = r#"
 /** import "myapp/models.proto"; */
 
 // name: UserProfile
-// data: myapp.models.User
+// param: myapp.models.User user
 
 el {
-    div `name`
+    div `user.name`
 }
 "#;
         let metadata = extract_metadata(content);
-        assert_eq!(metadata.data_type, Some("myapp.models.User".to_string()));
+        assert_eq!(metadata.params[0].type_name, "myapp.models.User");
     }
 }

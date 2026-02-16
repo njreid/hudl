@@ -7,14 +7,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use tower_lsp::lsp_types::Url;
-use crate::param;
+use crate::param::{self, ParamDef};
 
 /// Information about a Hudl component
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct ComponentInfo {
     pub name: String,
-    pub data_type: Option<String>,
+    pub params: Vec<ParamDef>,
     pub uri: Url,
 }
 
@@ -60,7 +60,7 @@ impl ComponentRegistry {
                 let uri = Url::from_file_path(path).unwrap();
                 self.components.insert(name.clone(), ComponentInfo {
                     name,
-                    data_type: metadata.data_type,
+                    params: metadata.params,
                     uri,
                 });
             }

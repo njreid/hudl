@@ -10,6 +10,7 @@ use crate::proto::{ProtoSchema};
 use cel_interpreter::Value as CelValue;
 use cel_interpreter::objects::{Key};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Errors that can occur during template interpretation.
 #[derive(Debug)]
@@ -38,15 +39,16 @@ pub fn render(
     data_bytes: &[u8],
     components: &HashMap<String, &Root>,
 ) -> Result<String, RenderError> {
-    if let Some(data_type) = &root.data_type {
-        // Decode proto wire format using the shared schema decoder
-        // We use enums_as_ints=true to maintain compatibility with existing tests
-        // that use integer strings in switch cases.
-        let cel_value = schema.decode_message_to_cel_ext(data_bytes, data_type, true);
-        render_with_values(root, schema, cel_value, components, None)
-    } else {
-        render_with_values(root, schema, CelValue::Null, components, None)
-    }
+    // Decode proto wire format into a map of parameters
+    let params_map = schema.decode_params_to_cel(data_bytes, &root.params);
+    
+    // Convert HashMap to CelValue::Map for render_with_values
+    let cel_map: HashMap<Key, CelValue> = params_map
+        .into_iter()
+        .map(|(k, v)| (Key::String(Arc::new(k)), v))
+        .collect();
+    
+    render_with_values(root, schema, CelValue::Map(cel_interpreter::objects::Map { map: Arc::new(cel_map) }), components, None)
 }
 
 /// Render a template AST with pre-decoded CelValues (for textproto-based preview).
@@ -395,13 +397,8 @@ el {
     #[test]
     fn test_render_with_data() {
         let content = r#"
-/**
-message SimpleData {
-    string title = 1;
-}
-*/
 // name: Simple
-// data: SimpleData
+// param: string title
 el {
     h1 `title`
 }
@@ -419,13 +416,8 @@ el {
     #[test]
     fn test_render_conditional() {
         let content = r#"
-/**
-message Data {
-    bool show = 1;
-}
-*/
 // name: Cond
-// data: Data
+// param: bool show
 el {
     if `show` {
         span "Visible"
@@ -454,13 +446,8 @@ el {
     #[test]
     fn test_render_each_loop() {
         let content = r#"
-/**
-message Data {
-    repeated string items = 1;
-}
-*/
 // name: List
-// data: Data
+// param: repeated string items
 el {
     each item `items` {
         li `item`
@@ -485,13 +472,8 @@ el {
     #[test]
     fn test_render_each_with_index() {
         let content = r#"
-/**
-message Data {
-    repeated string items = 1;
-}
-*/
 // name: Indexed
-// data: Data
+// param: repeated string items
 el {
     each item `items` {
         span `item_idx`
@@ -519,12 +501,9 @@ enum Status {
     ACTIVE = 1;
     INACTIVE = 2;
 }
-message Data {
-    Status status = 1;
-}
 */
 // name: StatusView
-// data: Data
+// param: Status status
 el {
     switch `status` {
         case "1" {
@@ -553,12 +532,9 @@ enum Status {
     UNKNOWN = 0;
     ACTIVE = 1;
 }
-message Data {
-    Status status = 1;
-}
 */
 // name: StatusDef
-// data: Data
+// param: Status status
 el {
     switch `status` {
         case "1" {
@@ -581,14 +557,9 @@ el {
     #[test]
     fn test_render_nested_if() {
         let content = r#"
-/**
-message Data {
-    bool outer = 1;
-    bool inner = 2;
-}
-*/
 // name: Nested
-// data: Data
+// param: bool outer
+// param: bool inner
 el {
     if `outer` {
         if `inner` {
@@ -657,14 +628,9 @@ el {
     #[test]
     fn test_render_string_interpolation_multiple() {
         let content = r#"
-/**
-message Data {
-    string first = 1;
-    string last = 2;
-}
-*/
 // name: Greeting
-// data: Data
+// param: string first
+// param: string last
 el {
     span "Hello `first` `last`!"
 }
@@ -685,13 +651,8 @@ el {
     #[test]
     fn test_render_comparison_in_if() {
         let content = r#"
-/**
-message Data {
-    int32 count = 1;
-}
-*/
 // name: Counter
-// data: Data
+// param: int32 count
 el {
     if `count > 0` {
         span "has items"
@@ -720,12 +681,9 @@ el {
 message Inner {
     string value = 1;
 }
-message Data {
-    Inner inner = 1;
-}
 */
 // name: Deep
-// data: Data
+// param: Inner inner
 el {
     span `inner.value`
 }
@@ -796,13 +754,8 @@ el {
     #[test]
     fn test_render_dynamic_attributes() {
         let content = r#"
-/**
-message Data {
-    string url = 1;
-}
-*/
 // name: Dynamic
-// data: Data
+// param: string url
 el {
     a href="`url`" "click"
 }
@@ -823,14 +776,9 @@ el {
     #[test]
     fn test_render_boolean_attributes() {
         let content = r#"
-/**
-message Data {
-    bool is_disabled = 1;
-    bool is_checked = 2;
-}
-*/
 // name: BoolAttr
-// data: Data
+// param: bool is_disabled
+// param: bool is_checked
 el {
     input disabled="`is_disabled`" checked="`is_checked`"
 }
@@ -849,13 +797,8 @@ el {
     #[test]
     fn test_render_empty_repeated_field() {
         let content = r#"
-/**
-message Data {
-    repeated string items = 1;
-}
-*/
 // name: Empty
-// data: Data
+// param: repeated string items
 el {
     each item `items` {
         li `item`
@@ -877,13 +820,10 @@ message Address {
     string city = 1;
     string state = 2;
 }
-message Data {
-    string name = 1;
-    Address address = 2;
-}
 */
 // name: Person
-// data: Data
+// param: string name
+// param: Address address
 el {
     div `name`
     div `address.city`
@@ -916,12 +856,9 @@ enum Status {
     UNKNOWN = 0;
     ACTIVE = 1;
 }
-message Data {
-    Status status = 1;
-}
 */
 // name: EnumDef
-// data: Data
+// param: Status status
 el {
     span `status`
 }
@@ -936,15 +873,10 @@ el {
     #[test]
     fn test_render_missing_field_defaults() {
         let content = r#"
-/**
-message Data {
-    string name = 1;
-    int32 count = 2;
-    bool active = 3;
-}
-*/
 // name: Defaults
-// data: Data
+// param: string name ""
+// param: int32 count 0
+// param: bool active false
 el {
     span `name`
     span `count`
@@ -967,13 +899,8 @@ el {
     #[test]
     fn test_render_unknown_variable_error() {
         let content = r#"
-/**
-message Data {
-    string name = 1;
-}
-*/
 // name: ErrVar
-// data: Data
+// param: string name
 el {
     span `nonexistent`
 }
@@ -983,6 +910,22 @@ el {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.message.contains("nonexistent"), "error: {}", err.message);
+    }
+
+    #[test]
+    fn test_render_special_link_nodes() {
+        let content = r#"
+el {
+    _stylesheet "/style.css"
+    _script "/app.js"
+}
+"#;
+        let (root, schema) = parse_template(content);
+        let html = render(&root, &schema, &[], &HashMap::new()).unwrap();
+        assert!(html.contains("<link"));
+        assert!(html.contains("rel=\"stylesheet\""));
+        assert!(html.contains("href=\"/style.css\""));
+        assert!(html.contains("<script src=\"/app.js\"></script>"));
     }
 
     #[test]

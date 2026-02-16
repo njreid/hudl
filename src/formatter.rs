@@ -1013,7 +1013,7 @@ mod tests {
     #[test]
     fn test_format_preserves_comments() {
         let input = r#"// name: MyComponent
-// data: MyData
+// param: MyData data
 el {
     div "content"
 }"#;
@@ -1022,7 +1022,7 @@ el {
         let formatted = format(&doc, &options);
         // Comments should be preserved
         assert!(formatted.contains("// name: MyComponent"));
-        assert!(formatted.contains("// data: MyData"));
+        assert!(formatted.contains("// param: MyData data"));
     }
 
     #[test]
@@ -1034,7 +1034,7 @@ message MyData {
 */
 
 // name: Test
-// data: MyData
+// param: MyData data
 el {
     div `name`
 }"#;
@@ -1049,7 +1049,7 @@ el {
         assert!(formatted.contains("*/\n\n//"), "Should have blank line between */ and //");
         // Single-line comments should be preserved
         assert!(formatted.contains("// name: Test"));
-        assert!(formatted.contains("// data: MyData"));
+        assert!(formatted.contains("// param: MyData data"));
     }
 
     #[test]

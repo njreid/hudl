@@ -35,6 +35,7 @@ Group multiple reactive attributes in a dedicated block. This is the preferred s
 ```hudl
 div {
     ~ {
+        init "@get('/api/data')"
         on:click "handleClick()"
         show $isVisible
         .active $isActive
@@ -297,6 +298,7 @@ Hudl automatically maps your attributes to the correct Datastar HTML attributes:
 | `on:custom` | `data-on:custom` |
 | `.active` | `data-class-active` |
 | `let:foo` | `data-signals-foo` |
+| `init` | `data-init` |
 | `show` | `data-show` |
 | `text` | `data-text` |
 

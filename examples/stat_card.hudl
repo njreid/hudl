@@ -14,7 +14,10 @@ message StatCardData {
 */
 
 // name: StatCard
-// data: StatCardData
+// param: string label
+// param: string value
+// param: string trend
+
 el {
   .stat-card.bg-slate-800.p-6.rounded-lg {
     h3.text-slate-400.text-sm.uppercase `label`

@@ -1,11 +1,12 @@
 //! Variable scope tracking for Hudl templates.
 //!
 //! This module handles:
-//! - Root scope from `// data:` message type (exposes message fields as variables)
+//! - Root scope from `// param:` comments (exposes params as variables)
 //! - Nested scopes from `each` nodes (introduces loop variables)
 //! - CEL expression local variables (e.g., list comprehension variables)
 
 use hudlc::proto::{ProtoSchema, ProtoType, ProtoMessage};
+use crate::param::{ParamDef, extract_metadata};
 use std::collections::HashMap;
 
 /// Information about a variable in scope
@@ -96,24 +97,28 @@ impl Default for Scope {
     }
 }
 
-/// Build the root scope from a proto schema and data type name
-pub fn build_root_scope(schema: &ProtoSchema, data_type: Option<&str>) -> Scope {
+/// Build the root scope from a proto schema and parameters
+pub fn build_root_scope(schema: &ProtoSchema, params: &[ParamDef]) -> Scope {
     let mut scope = Scope::new();
 
-    if let Some(type_name) = data_type {
-        // Add the root variable _data
+    for param in params {
+        let mut field_type = ProtoSchema::parse_type(&param.type_name);
+        
+        // Refine if it's an enum
+        if let ProtoType::Message(ref name) = field_type {
+            if schema.enums.contains_key(name) {
+                field_type = ProtoType::Enum(name.clone());
+            }
+        }
+
         scope.add_var(
-            "_data".to_string(),
+            param.name.clone(),
             VarInfo {
-                proto_type: ProtoType::Message(type_name.to_string()),
-                repeated: false,
+                proto_type: field_type,
+                repeated: param.repeated,
                 source: VarSource::DataField,
             },
         );
-
-        if let Some(message) = schema.get_message(type_name) {
-            add_message_fields_to_scope(&mut scope, message, VarSource::DataField);
-        }
     }
 
     scope
@@ -138,9 +143,9 @@ fn add_message_fields_to_scope(scope: &mut Scope, message: &ProtoMessage, source
 pub fn build_scopes_from_content(
     content: &str,
     schema: &ProtoSchema,
-    data_type: Option<&str>,
 ) -> HashMap<u32, Scope> {
-    let root_scope = build_root_scope(schema, data_type);
+    let metadata = extract_metadata(content);
+    let root_scope = build_root_scope(schema, &metadata.params);
     let mut line_scopes: HashMap<u32, Scope> = HashMap::new();
 
     let normalized = hudlc::parser::pre_parse(content);
@@ -291,17 +296,16 @@ message TestData {
     int32 count = 2;
 }
 */
-// data: TestData
+// param: TestData data
 el {
-    h1 `title`
+    h1 `data.title`
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let scope = build_root_scope(&schema, Some("TestData"));
+        let metadata = extract_metadata(content);
+        let scope = build_root_scope(&schema, &metadata.params);
 
-        assert!(scope.contains("title"));
-        assert!(scope.contains("count"));
-        assert!(!scope.contains("unknown"));
+        assert!(scope.contains("data"));
     }
 
     #[test]
@@ -311,24 +315,23 @@ message ListData {
     repeated string items = 1;
 }
 */
-// data: ListData
+// param: ListData data
 el {
-    each item `items` {
+    each item `data.items` {
         li `item`
     }
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let line_scopes = build_scopes_from_content(content, &schema, Some("ListData"));
+        let line_scopes = build_scopes_from_content(content, &schema);
 
-        // Root scope should have 'items'
+        // Root scope should have 'data'
         let root_scope = get_scope_for_line(&line_scopes, 0);
-        assert!(root_scope.contains("items"));
+        assert!(root_scope.contains("data"));
 
-        // Inside each, we should have both 'items' and 'item'
-        // The each is around line 8-10
+        // Inside each, we should have both 'data' and 'item'
         let each_scope = get_scope_for_line(&line_scopes, 9);
-        assert!(each_scope.contains("items"));
+        assert!(each_scope.contains("data"));
         assert!(each_scope.contains("item"));
     }
 
@@ -341,22 +344,22 @@ message UserData {
     bool is_admin = 2;
 }
 */
-// data: UserData
+// param: UserData user
 el {
-    if `is_admin` {
-        span "Admin: " `name`
+    if `user.is_admin` {
+        span "Admin: " `user.name`
     }
     else {
-        span "User: " `name`
+        span "User: " `user.name`
     }
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let scope = build_root_scope(&schema, Some("UserData"));
+        let metadata = extract_metadata(content);
+        let scope = build_root_scope(&schema, &metadata.params);
 
-        // Both name and is_admin should be in scope
-        assert!(scope.contains("name"));
-        assert!(scope.contains("is_admin"));
+        // user should be in scope
+        assert!(scope.contains("user"));
     }
 
     #[test]
@@ -374,27 +377,27 @@ message OrderData {
     Status status = 2;
 }
 */
-// data: OrderData
+// param: OrderData order
 el {
-    switch `status` {
+    switch `order.status` {
         case STATUS_ACTIVE {
-            span.active `id`
+            span.active `order.id`
         }
         case STATUS_PENDING {
-            span.pending `id`
+            span.pending `order.id`
         }
         default {
-            span.unknown `id`
+            span.unknown `order.id`
         }
     }
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let scope = build_root_scope(&schema, Some("OrderData"));
+        let metadata = extract_metadata(content);
+        let scope = build_root_scope(&schema, &metadata.params);
 
-        // Both id and status should be in scope
-        assert!(scope.contains("id"));
-        assert!(scope.contains("status"));
+        // order should be in scope
+        assert!(scope.contains("order"));
     }
 
     #[test]
@@ -414,17 +417,18 @@ message PageData {
     User user = 1;
 }
 */
-// data: PageData
+// param: PageData data
 el {
-    h1 `user.name`
-    p `user.address.city`
+    h1 `data.user.name`
+    p `data.user.address.city`
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let scope = build_root_scope(&schema, Some("PageData"));
+        let metadata = extract_metadata(content);
+        let scope = build_root_scope(&schema, &metadata.params);
 
-        // user should be in scope
-        assert!(scope.contains("user"));
+        // data should be in scope
+        assert!(scope.contains("data"));
 
         // Verify we can resolve nested field paths
         assert!(schema.resolve_field_path("PageData", "user").is_ok());
@@ -446,28 +450,26 @@ message CartData {
     int32 total = 2;
 }
 */
-// data: CartData
+// param: CartData data
 el {
-    div `total`
-    each item `items` {
+    div `data.total`
+    each item `data.items` {
         div `item.name`
         span `item.price`
     }
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let line_scopes = build_scopes_from_content(content, &schema, Some("CartData"));
+        let line_scopes = build_scopes_from_content(content, &schema);
 
-        // Root scope should have 'items' and 'total'
+        // Root scope should have 'data'
         let root_scope = get_scope_for_line(&line_scopes, 0);
-        assert!(root_scope.contains("items"));
-        assert!(root_scope.contains("total"));
+        assert!(root_scope.contains("data"));
 
         // Inside each, should have 'item' in addition to root vars
         let each_scope = get_scope_for_line(&line_scopes, 15);
         assert!(each_scope.contains("item"));
-        assert!(each_scope.contains("items")); // Still accessible
-        assert!(each_scope.contains("total")); // Still accessible
+        assert!(each_scope.contains("data")); // Still accessible
     }
 
     #[test]
@@ -482,9 +484,9 @@ message CatalogData {
     repeated Category categories = 1;
 }
 */
-// data: CatalogData
+// param: CatalogData data
 el {
-    each cat `categories` {
+    each cat `data.categories` {
         h2 `cat.name`
         each item `cat.items` {
             li `item`
@@ -493,22 +495,22 @@ el {
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let line_scopes = build_scopes_from_content(content, &schema, Some("CatalogData"));
+        let line_scopes = build_scopes_from_content(content, &schema);
 
-        // Root scope should have 'categories'
+        // Root scope should have 'data'
         let root_scope = get_scope_for_line(&line_scopes, 0);
-        assert!(root_scope.contains("categories"));
+        assert!(root_scope.contains("data"));
 
         // First each level should have 'cat'
         let outer_each = get_scope_for_line(&line_scopes, 13);
         assert!(outer_each.contains("cat"));
-        assert!(outer_each.contains("categories"));
+        assert!(outer_each.contains("data"));
 
         // Inner each should have both 'cat' and 'item'
         let inner_each = get_scope_for_line(&line_scopes, 16);
         assert!(inner_each.contains("item"));
         assert!(inner_each.contains("cat"));
-        assert!(inner_each.contains("categories"));
+        assert!(inner_each.contains("data"));
     }
 
     #[test]
@@ -520,30 +522,29 @@ message TagsData {
     repeated bool flags = 3;
 }
 */
-// data: TagsData
+// param: TagsData data
 el {
-    each tag `tags` {
+    each tag `data.tags` {
         span `tag`
     }
-    each count `counts` {
+    each count `data.counts` {
         span `count`
     }
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let scope = build_root_scope(&schema, Some("TagsData"));
+        let metadata = extract_metadata(content);
+        let scope = build_root_scope(&schema, &metadata.params);
 
-        assert!(scope.contains("tags"));
-        assert!(scope.contains("counts"));
-        assert!(scope.contains("flags"));
+        assert!(scope.contains("data"));
 
         // Verify the types are repeated
-        let tags_var = scope.lookup("tags").unwrap();
-        assert!(tags_var.repeated);
+        let data_var = scope.lookup("data").unwrap();
+        assert!(!data_var.repeated); // data message itself is not repeated
     }
 
     #[test]
-    fn test_no_data_type() {
+    fn test_no_params() {
         // When no data type is specified, scope should be empty
         let content = r#"/**
 message SomeMessage {
@@ -556,7 +557,7 @@ el {
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let scope = build_root_scope(&schema, None);
+        let scope = build_root_scope(&schema, &[]);
 
         // No variables should be in scope
         assert!(!scope.contains("field"));
@@ -598,20 +599,18 @@ message FormData {
     string password = 3;
 }
 */
-// data: FormData
+// param: FormData data
 el {
-    input `username`
+    input `data.username`
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let scope = build_root_scope(&schema, Some("FormData"));
+        let metadata = extract_metadata(content);
+        let scope = build_root_scope(&schema, &metadata.params);
 
         let vars = scope.all_vars();
-        assert!(vars.contains(&"username".to_string()));
-        assert!(vars.contains(&"email".to_string()));
-        assert!(vars.contains(&"password".to_string()));
-        assert!(vars.contains(&"_data".to_string()));
-        assert_eq!(vars.len(), 4);
+        assert!(vars.contains(&"data".to_string()));
+        assert_eq!(vars.len(), 1);
     }
 
     #[test]
@@ -663,10 +662,10 @@ message PageData {
     string title = 2;
 }
 */
-// data: PageData
+// param: PageData data
 el {
-    h1 `title`
-    each team `teams` {
+    h1 `data.title`
+    each team `data.teams` {
         h2 `team.team_name`
         each member `team.members` {
             div {
@@ -680,25 +679,22 @@ el {
 }
 "#;
         let schema = ProtoSchema::from_template(content, None).unwrap();
-        let line_scopes = build_scopes_from_content(content, &schema, Some("PageData"));
+        let line_scopes = build_scopes_from_content(content, &schema);
 
-        // Root level: title, teams
+        // Root level: data
         let root = get_scope_for_line(&line_scopes, 0);
-        assert!(root.contains("title"));
-        assert!(root.contains("teams"));
+        assert!(root.contains("data"));
         assert!(!root.contains("team"));
         assert!(!root.contains("member"));
 
-        // After first each: title, teams, team
+        // After first each: data, team
         let team_scope = get_scope_for_line(&line_scopes, 20);
-        assert!(team_scope.contains("title"));
-        assert!(team_scope.contains("teams"));
+        assert!(team_scope.contains("data"));
         assert!(team_scope.contains("team"));
 
-        // After nested each: title, teams, team, member
+        // After nested each: data, team, member
         let member_scope = get_scope_for_line(&line_scopes, 23);
-        assert!(member_scope.contains("title"));
-        assert!(member_scope.contains("teams"));
+        assert!(member_scope.contains("data"));
         assert!(member_scope.contains("team"));
         assert!(member_scope.contains("member"));
     }

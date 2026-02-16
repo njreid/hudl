@@ -180,7 +180,7 @@ el {
 fn test_component_metadata() {
     let input = r#"
 // name: UserCard
-// data: UserProfile
+// param: UserProfile user
 
 el { div "User" }
     "#;
@@ -189,7 +189,9 @@ el { div "User" }
     let root = transformer::transform_with_metadata(&doc, input).expect("Failed to transform");
 
     assert_eq!(root.name, Some("UserCard".to_string()));
-    assert_eq!(root.data_type, Some("UserProfile".to_string()));
+    assert_eq!(root.params.len(), 1);
+    assert_eq!(root.params[0].name, "user");
+    assert_eq!(root.params[0].type_name, "UserProfile");
 }
 
 #[test]
@@ -369,9 +371,74 @@ el {
 
     
 
-    #[test]
+    use hudlc::codegen_go;
 
-    fn test_codegen_slots() {
+#[test]
+fn test_go_wrapper_generation_integration() {
+    let input = r#"
+// name: UserCard
+// param: string name
+// param: int32 age
+
+el {
+    div `name`
+}
+    "#;
+
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform_with_metadata(&doc, input).expect("Failed to transform");
+    
+    let views = vec![("UserCard".to_string(), root.params)];
+    let opts = codegen_go::GoOptions {
+        package_name: "views".to_string(),
+        pb_import_path: "".to_string(),
+        pb_package_name: "pb".to_string(),
+    };
+
+    let code = codegen_go::generate_go_wrapper(views, opts);
+
+    assert!(code.contains("func (v *Views) UserCard(name string, age int32)"));
+    assert!(code.contains("protowire.AppendString(b, name)"));
+    assert!(code.contains("uint64(age)"));
+}
+
+#[test]
+fn test_special_link_nodes() {
+    let input = r#"
+el {
+    head {
+        _stylesheet "/style.css"
+        _icon "/favicon.ico"
+    }
+    body {
+        _script "/app.js"
+    }
+}
+    "#;
+
+    let doc = parser::parse(input).expect("Failed to parse");
+    let root = transformer::transform(&doc).expect("Failed to transform");
+
+    let head = root.nodes[0].as_element().unwrap();
+    let body = root.nodes[1].as_element().unwrap();
+
+    let link = head.children[0].as_element().unwrap();
+    assert_eq!(link.tag, "link");
+    assert_eq!(link.attributes.get("rel").unwrap(), "stylesheet");
+    assert_eq!(link.attributes.get("href").unwrap(), "/style.css");
+
+    let icon = head.children[1].as_element().unwrap();
+    assert_eq!(icon.tag, "link");
+    assert_eq!(icon.attributes.get("rel").unwrap(), "icon");
+    assert_eq!(icon.attributes.get("href").unwrap(), "/favicon.ico");
+
+    let script = body.children[0].as_element().unwrap();
+    assert_eq!(script.tag, "script");
+    assert_eq!(script.attributes.get("src").unwrap(), "/app.js");
+}
+
+#[test]
+fn test_codegen_slots() {
 
         let layout_input = r#"
 
@@ -431,16 +498,26 @@ el {
 
     
 
-        // Layout should use content_html parameter
+                // Layout should use content_html parameter
 
-        assert!(rust_code.contains("r.push_str(content_html)"));
+    
 
-        // Page should render children and pass to Layout
+                assert!(rust_code.contains("r.push_str(content_html)"));
 
-        assert!(rust_code.contains("let mut invocation_content = String::new()"));
+    
 
-        assert!(rust_code.contains("render_layout(r, proto_data, &invocation_content)"));
+                // Page should render children and pass to Layout
 
-    }
+    
+
+                assert!(rust_code.contains("let mut invocation_content = String::new()"));
+
+    
+
+                assert!(rust_code.contains("render_layout(r, &component_proto, &invocation_content)"));
+
+    
+
+            }
 
     

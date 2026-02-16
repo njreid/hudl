@@ -1,6 +1,6 @@
 use kdl::{KdlDocument, KdlNode};
 use regex::Regex;
-use crate::ast::{ControlFlow, SwitchCase, Root, Node, Element, Text, DatastarAttr};
+use crate::ast::{ControlFlow, SwitchCase, Root, Node, Element, Text, DatastarAttr, Param};
 use std::collections::HashMap;
 
 pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
@@ -8,7 +8,7 @@ pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
     let mut css = None;
     let mut imports = Vec::new();
     let name = None;
-    let data_type = None;
+    let params = Vec::new();
 
     for node in doc.nodes() {
         match node.name().value() {
@@ -35,26 +35,53 @@ pub fn transform(doc: &KdlDocument) -> Result<Root, String> {
             _ => {}
         }
     }
-    Ok(Root { nodes, css, name, data_type, imports })
+    Ok(Root { nodes, css, name, params, imports })
 }
 
 /// Extract component metadata from raw content (before KDL parsing)
-pub fn extract_metadata(content: &str) -> (Option<String>, Option<String>) {
+pub fn extract_metadata(content: &str) -> (Option<String>, Vec<Param>) {
     let name_re = Regex::new(r"//\s*name:\s*(\w+)").unwrap();
-    let data_re = Regex::new(r"//\s*data:\s*([\w.]+)").unwrap();
+    // param: [repeated] <type> <name> [default]
+    let param_re = Regex::new(r#"//\s*param:\s*(repeated\s+)?([\w.]+)\s+(\w+)(?:\s+(.*))?"#).unwrap();
 
-    let name = name_re.captures(content).map(|c| c[1].to_string());
-    let data_type = data_re.captures(content).map(|c| c[1].to_string());
+    let mut name = None;
+    let mut params = Vec::new();
 
-    (name, data_type)
+    for line in content.lines() {
+        if let Some(caps) = name_re.captures(line) {
+            name = Some(caps[1].to_string());
+        }
+        if let Some(caps) = param_re.captures(line) {
+            let repeated = caps.get(1).is_some();
+            let type_name = caps[2].to_string();
+            let param_name = caps[3].to_string();
+            let default_value = caps.get(4).map(|m| {
+                let s = m.as_str().trim();
+                if s.starts_with('"') && s.ends_with('"') {
+                    s[1..s.len()-1].to_string()
+                } else {
+                    s.to_string()
+                }
+            });
+            
+            params.push(Param {
+                name: param_name,
+                type_name,
+                repeated,
+                default_value,
+            });
+        }
+    }
+
+    (name, params)
 }
 
 /// Transform with metadata extraction from raw content
 pub fn transform_with_metadata(doc: &KdlDocument, raw_content: &str) -> Result<Root, String> {
     let mut root = transform(doc)?;
-    let (name, data_type) = extract_metadata(raw_content);
+    let (name, params) = extract_metadata(raw_content);
     root.name = name;
-    root.data_type = data_type;
+    root.params = params;
     Ok(root)
 }
 
@@ -340,13 +367,31 @@ fn transform_block(nodes: &[KdlNode]) -> Result<Vec<Node>, String> {
 fn transform_node(node: &KdlNode) -> Result<Node, String> {
     let name = node.name().value();
 
-    let (tag, mut id, mut classes, mut datastar) = parse_selector(name);
+    let (mut tag, mut id, mut classes, mut datastar) = parse_selector(name);
 
     let mut attributes = HashMap::new();
     let mut children = Vec::new();
     let mut styles = Vec::new();
 
+    let mut is_special_link = false;
+    let mut special_attr = String::new();
+
+    if tag.starts_with('_') {
+        if tag == "_script" {
+            tag = "script".to_string();
+            special_attr = "src".to_string();
+            is_special_link = true;
+        } else {
+            let rel = tag[1..].to_string();
+            tag = "link".to_string();
+            attributes.insert("rel".to_string(), rel);
+            special_attr = "href".to_string();
+            is_special_link = true;
+        }
+    }
+
     // 1. Process entries (Properties and Arguments)
+    let mut first_arg = true;
     for entry in node.entries() {
         if let Some(prop_name) = entry.name() {
             let key = prop_name.value();
@@ -364,10 +409,15 @@ fn transform_node(node: &KdlNode) -> Result<Node, String> {
                 }
             }
         } else {
-            // Positional argument -> Text content
+            // Positional argument
             if let Some(v) = entry.value().as_string() {
-                children.push(Node::Text(Text { content: v.to_string() }));
+                if is_special_link && first_arg {
+                    attributes.insert(special_attr.clone(), v.to_string());
+                } else {
+                    children.push(Node::Text(Text { content: v.to_string() }));
+                }
             }
+            first_arg = false;
         }
     }
 

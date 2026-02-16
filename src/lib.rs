@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod cel;
 pub mod codegen_cel;
+pub mod codegen_go;
 pub mod formatter;
 pub mod interpreter;
 pub mod parser;

@@ -6,10 +6,11 @@
 use axum::{
     Router,
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, Method},
     response::{IntoResponse, Json, Sse, sse::Event as SseEvent},
     routing::{get, post},
 };
+use tower_http::cors::{Any, CorsLayer};
 use futures_util::stream::Stream;
 use notify::{Event, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -19,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::StreamExt as _;
+use tokio_stream::{StreamExt as _, StreamExt};
 
 /// Parsed and cached template ready for rendering.
 struct CachedTemplate {
@@ -35,37 +36,20 @@ pub struct DevServerState {
     watch_dir: PathBuf,
     /// Broadcast channel for reload notifications
     reload_tx: broadcast::Sender<String>,
+    /// Port this server is running on
+    port: u16,
     /// Whether to log detailed render requests
     verbose: bool,
 }
 
-const RELOAD_SCRIPT: &str = r#"
-<script>
-  (function() {
-    const ev = new EventSource('/events');
-    ev.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type === 'reload') {
-          console.log('Hudl: Reloading page...');
-          location.reload();
-        }
-      } catch(err) {}
-    };
-    ev.onerror = () => {
-      // Reconnect is handled by EventSource automatically
-    };
-  })();
-</script>
-"#;
-
 impl DevServerState {
-    pub fn new(watch_dir: PathBuf, verbose: bool) -> Self {
+    pub fn new(watch_dir: PathBuf, port: u16, verbose: bool) -> Self {
         let (reload_tx, _) = broadcast::channel(64);
         Self {
             templates: Mutex::new(HashMap::new()),
             watch_dir,
             reload_tx,
+            port,
             verbose,
         }
     }
@@ -199,13 +183,36 @@ async fn health_handler(State(state): State<Arc<DevServerState>>) -> impl IntoRe
     })
 }
 
+/// GET /__hudl/live_reload — SSE for live reload notifications.
+async fn live_reload_handler(
+    State(state): State<Arc<DevServerState>>,
+) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+    let rx = state.reload_tx.subscribe();
+    
+    let reload_stream = BroadcastStream::new(rx)
+        .filter_map(|msg| msg.ok())
+        .map(|msg| {
+            Ok(SseEvent::default().data(msg))
+        });
+
+    // Add a heartbeat every 15 seconds to keep the connection alive
+    let heartbeat_stream = tokio_stream::StreamExt::map(
+        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(std::time::Duration::from_secs(15))),
+        |_| Ok(SseEvent::default().comment("heartbeat"))
+    );
+
+    let combined_stream = tokio_stream::StreamExt::merge(reload_stream, heartbeat_stream);
+
+    Sse::new(combined_stream)
+}
+
 /// POST /render — Wire-format render (used by Go runtime)
 async fn render_handler(
     State(state): State<Arc<DevServerState>>,
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
-    // Get component name from header
+    // ... (rest of the render_handler)
     let component_name = match headers.get("X-Hudl-Component") {
         Some(v) => match v.to_str() {
             Ok(s) => s.to_string(),
@@ -272,14 +279,36 @@ async fn render_handler(
                 );
             }
 
-            // Inject reload script
-            // If it's a full page (contains </body>), inject before it.
-            // Otherwise just append.
+            // Inject reload script using the LSP port
+            let reload_script = format!(r#"
+<script>
+  (function() {{
+    console.log('Hudl: Connecting to dev server for live reload on port {}...');
+    const ev = new EventSource('http://localhost:{}/__hudl/live_reload');
+    ev.onmessage = (e) => {{
+      try {{
+        const data = JSON.parse(e.data);
+        if (data.type === 'reload') {{
+          console.log('Hudl: File change detected, reloading...');
+          location.reload();
+        }}
+      }} catch(err) {{}}
+    }};
+    ev.onerror = (e) => {{
+      console.error('Hudl: Live reload connection error. Retrying...', e);
+    }};
+    ev.onopen = () => {{
+      console.log('Hudl: Live reload connected.');
+    }};
+  }})();
+</script>
+"#, state.port, state.port);
+
             let lower_html = html.to_lowercase();
             if let Some(pos) = lower_html.find("</body>") {
-                html.insert_str(pos, RELOAD_SCRIPT);
+                html.insert_str(pos, &reload_script);
             } else {
-                html.push_str(RELOAD_SCRIPT);
+                html.push_str(&reload_script);
             }
 
             let mut response_headers = HeaderMap::new();
@@ -311,27 +340,18 @@ async fn render_handler(
     }
 }
 
-/// GET /events — SSE for live reload notifications.
-async fn events_handler(
-    State(state): State<Arc<DevServerState>>,
-) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
-    let rx = state.reload_tx.subscribe();
-    
-    let stream = BroadcastStream::new(rx)
-        .filter_map(|msg| msg.ok())
-        .map(|msg| {
-            Ok(SseEvent::default().data(msg))
-        });
-
-    Sse::new(stream)
-}
-
 /// Create the dev server router for the given state.
 pub fn create_router(state: Arc<DevServerState>) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers(Any);
+
     Router::new()
         .route("/health", get(health_handler))
         .route("/render", post(render_handler))
-        .route("/events", get(events_handler))
+        .route("/__hudl/live_reload", get(live_reload_handler))
+        .layer(cors)
         .with_state(state)
 }
 
@@ -346,7 +366,7 @@ pub async fn start(
     watch_dir: PathBuf,
     verbose: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let state = Arc::new(DevServerState::new(watch_dir.clone(), verbose));
+    let state = Arc::new(DevServerState::new(watch_dir.clone(), port, verbose));
 
     // Load all templates initially
     state.load_all();
@@ -409,7 +429,7 @@ el {{
         let dir = tempfile::tempdir().unwrap();
         let path = write_hudl_file(dir.path(), "card.hudl", &valid_template("Card"));
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         let _ = state.load_file(&path);
 
         assert_eq!(state.templates_count(), 1);
@@ -421,7 +441,7 @@ el {{
         let dir = tempfile::tempdir().unwrap();
         let path = write_hudl_file(dir.path(), "bad.hudl", "// name: Bad\nthis is {{ not valid kdl");
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         let _ = state.load_file(&path);
 
         assert_eq!(state.templates_count(), 0);
@@ -439,7 +459,7 @@ el {{
 "#,
         );
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         let _ = state.load_file(&path);
 
         assert_eq!(state.templates_count(), 0);
@@ -451,7 +471,7 @@ el {{
         write_hudl_file(dir.path(), "a.hudl", &valid_template("Alpha"));
         write_hudl_file(dir.path(), "b.hudl", &valid_template("Beta"));
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         state.load_all();
 
         assert_eq!(state.templates_count(), 2);
@@ -466,7 +486,7 @@ el {{
         fs::write(dir.path().join("readme.txt"), "not a template").unwrap();
         fs::write(dir.path().join("data.json"), "{}").unwrap();
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         state.load_all();
 
         assert_eq!(state.templates_count(), 1);
@@ -478,7 +498,7 @@ el {{
         let dir = tempfile::tempdir().unwrap();
         let path = write_hudl_file(dir.path(), "card.hudl", &valid_template("Card"));
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         let _ = state.load_file(&path);
         assert!(state.has_template("Card"));
 
@@ -494,7 +514,7 @@ el {{
         let dir = tempfile::tempdir().unwrap();
         let path = write_hudl_file(dir.path(), "card.hudl", &valid_template("Card"));
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         let _ = state.load_file(&path);
         assert!(state.has_template("Card"));
 
@@ -512,7 +532,7 @@ el {{
         let path_a = write_hudl_file(dir.path(), "a.hudl", &valid_template("Header"));
         let path_b = write_hudl_file(dir.path(), "b.hudl", &valid_template("Footer"));
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
         let _ = state.load_file(&path_a);
         let _ = state.load_file(&path_b);
 
@@ -525,7 +545,7 @@ el {{
     fn test_cache_overwrite() {
         let dir = tempfile::tempdir().unwrap();
 
-        let state = DevServerState::new(dir.path().to_path_buf(), false);
+        let state = DevServerState::new(dir.path().to_path_buf(), 9999, false);
 
         // Two files with the same component name
         let path_a = write_hudl_file(dir.path(), "a.hudl", &valid_template("Widget"));

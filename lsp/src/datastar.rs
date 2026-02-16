@@ -41,7 +41,7 @@ fn classify_attr(name: &str) -> Option<AttrCategory> {
         Some(AttrCategory { valid_modifiers: NO_MODIFIERS })
     } else {
         match name {
-            "show" | "text" | "ref" => Some(AttrCategory { valid_modifiers: NO_MODIFIERS }),
+            "show" | "text" | "ref" | "init" => Some(AttrCategory { valid_modifiers: NO_MODIFIERS }),
             "bind" => Some(AttrCategory { valid_modifiers: BIND_MODIFIERS }),
             "persist" => Some(AttrCategory { valid_modifiers: PERSIST_MODIFIERS }),
             "teleport" => Some(AttrCategory { valid_modifiers: TELEPORT_MODIFIERS }),
@@ -348,9 +348,10 @@ fn attribute_completions() -> Vec<CompletionItem> {
         ("on:change", "Event handler for change", "on:change"),
         ("on:keydown", "Event handler for keydown", "on:keydown"),
         ("on:keyup", "Event handler for keyup", "on:keyup"),
-        ("on:load", "Event handler for load", "on:load"),
+        ("init", "Trigger logic on element initialization", "init"),
         ("on:intersect", "Intersection observer trigger", "on:intersect"),
         ("on:fetch", "Fetch event handler", "on:fetch"),
+        ("init", "Trigger logic on element initialization", "init"),
         ("show", "Conditionally show/hide element", "show"),
         ("text", "Set element text content", "text"),
         ("ref", "Element reference", "ref"),

@@ -91,12 +91,12 @@ import {
     "./layout"
 }
 
-// name: HomePage
-// data: User
+// HomePage
+// param: User user
 el {
     AppLayout title="Home" {
         .welcome-card {
-            h2 "Welcome back, `name`!"
+            h2 "Welcome back, `user.name`!"
         }
     }
 }
@@ -139,7 +139,7 @@ if `size(items) == 0` {
 Iterates over a collection. Inside the block, the binding name and `<itemvar>_idx` are available.
 
 ```kdl
-// data: NavData
+// param: repeated NavItem nav_items
 each item `nav_items` {
     li {
         span "Item #`item_idx`: "
@@ -153,15 +153,15 @@ each item `nav_items` {
 Provides branching based on values or types.
 
 ```kdl
-// data: Notification
-switch `type` {
+// param: Notification notification
+switch `notification.type` {
     case "email" {
         .icon-email
-        span `subject`
+        span `notification.subject`
     }
     case "sms" {
         .icon-sms
-        span `phone_number`
+        span `notification.phone_number`
     }
     default {
         span "Unknown notification"

@@ -61,13 +61,8 @@ Compiles all Hudl templates in the `views/` directory into a production-ready `v
 ### `views/layout.hudl`
 
 ```kdl
-/**
-message LayoutData {
-    string title = 1;
-}
-*/
 // name: AppLayout
-// data: LayoutData
+// param: string title
 
 el {
     html lang=en {
@@ -92,14 +87,9 @@ import {
     "./layout"
 }
 
-/**
-message SimpleData {
-    string title = 1;
-    string description = 2;
-}
-*/
 // name: HomePage
-// data: SimpleData
+// param: string title
+// param: string description
 
 el {
     AppLayout title=`title` {

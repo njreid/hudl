@@ -438,7 +438,7 @@ message State {
     string filter = 3;
 }
 */
-// data: State
+// param: State data
 
 div {
     ~ {

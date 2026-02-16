@@ -21,7 +21,11 @@ message DashboardData {
 */
 
 // name: Dashboard
-// data: DashboardData
+// param: string revenue_formatted
+// param: int32 active_users
+// param: int32 system_load
+// param: repeated Transaction transactions
+
 el {
   #dashboard-view {
     h1.text-3xl.font-bold.mb-6 "Overview"

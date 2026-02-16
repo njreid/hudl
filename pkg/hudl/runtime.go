@@ -108,6 +108,28 @@ func NewRuntime(ctx context.Context, opts Options) (*Runtime, error) {
 	}, nil
 }
 
+// MustNewRuntime creates a new Hudl runtime with default logic:
+// 1. If HUDL_DEV is set, connects to the LSP sidecar.
+// 2. Otherwise, loads views.wasm from the current directory and initializes WASM.
+// It panics on failure.
+func MustNewRuntime(ctx context.Context) *Runtime {
+	opts := Options{}
+
+	if os.Getenv("HUDL_DEV") == "" {
+		wasmBytes, err := os.ReadFile("views.wasm")
+		if err != nil {
+			panic(fmt.Sprintf("failed to read views.wasm: %v (set HUDL_DEV=1 for dev mode)", err))
+		}
+		opts.WASMBytes = wasmBytes
+	}
+
+	rt, err := NewRuntime(ctx, opts)
+	if err != nil {
+		panic(fmt.Sprintf("failed to initialize Hudl runtime: %v", err))
+	}
+	return rt
+}
+
 // NewRuntimeFromWASM is a helper to create a prod-mode runtime from WASM bytes.
 func NewRuntimeFromWASM(ctx context.Context, wasmBytes []byte) (*Runtime, error) {
 	return NewRuntime(ctx, Options{WASMBytes: wasmBytes})

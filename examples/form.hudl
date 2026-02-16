@@ -11,7 +11,14 @@ message RegistrationFormData {
 */
 
 // name: RegistrationForm
-// data: RegistrationFormData
+// param: string username
+// param: string email
+// param: bool terms_accepted
+// param: string csrf_token
+// param: string username_error ""
+// param: string email_error ""
+// param: string password_error ""
+
 el {
   #registration.container {
     h1 "Create Account"

@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,13 +14,8 @@ import (
 	"time"
 )
 
-const LayoutTemplate = `/**
-message LayoutData {
-    string title = 1;
-}
-*/
-// name: AppLayout
-// data: LayoutData
+const LayoutTemplate = `// name: AppLayout
+// param: string title "Hudl Project"
 
 el {
     html lang=en {
@@ -26,6 +23,7 @@ el {
             meta charset=utf-8
             title ` + "`" + `title` + "`" + `
             _stylesheet "/style.css"
+            _script "/datastar.js" type=module
         }
         body {
             header { h1 "Hudl Project" }
@@ -40,20 +38,30 @@ const IndexTemplate = `import {
     "./layout"
 }
 
-/**
-message SimpleData {
-    string title = 1;
-    string description = 2;
-}
-*/
 // name: HomePage
-// data: SimpleData
+// param: string title "Home"
+// param: string description "Welcome to your new Hudl app!"
 
 el {
     AppLayout title=` + "`" + `title` + "`" + ` {
         div {
-            h2 "Welcome!"
+            h2 ` + "`" + `title` + "`" + `
             p ` + "`" + `description` + "`" + `
+
+            section {
+                style {
+                    margin-top "2rem"
+                    padding "1rem"
+                    background "#eee"
+                    border-radius "8px"
+                }
+                h3 "Server-Sent Events Clock"
+                // Datastar connection to /events
+                div ~init="@get('/events')" {
+                    span "Current Time: "
+                    span#clock "Connecting..."
+                }
+            }
         }
     }
 }
@@ -69,11 +77,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/njreid/hudl/pkg/hudl"
-	"github.com/njreid/hudl/pkg/hudl/pb"
+	"MOD_NAME/views"
+	"github.com/starfederation/datastar-go/datastar"
 )
 
 func main() {
@@ -82,25 +92,11 @@ func main() {
 	r.Use(middleware.Recoverer)
 
 	// --- Hudl Runtime Initialization ---
-	// Automatically switches between Dev/Prod modes based on HUDL_DEV environment variable.
-	// In Dev Mode: renders via HTTP to the LSP sidecar (hot-reload).
-	// In Prod Mode: renders via embedded views.wasm (high performance).
-	var wasmBytes []byte
-	if os.Getenv("HUDL_DEV") == "" {
-		var err error
-		wasmBytes, err = os.ReadFile("views.wasm")
-		if err != nil {
-			log.Printf("Warning: views.wasm not found, prod mode will fail to render")
-		}
-	}
-
-	rt, err := hudl.NewRuntime(context.Background(), hudl.Options{
-		WASMBytes: wasmBytes,
-	})
-	if err != nil {
-		log.Fatalf("Failed to initialize Hudl runtime: %v", err)
-	}
+	rt := hudl.MustNewRuntime(context.Background())
 	defer rt.Close()
+
+	// Initialize views wrapper
+	v := views.NewViews(rt)
 
 	// --- Static Asset Serving ---
 	// Serve files from the ./public directory at the root path.
@@ -111,15 +107,8 @@ func main() {
 
 	// --- Routes ---
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		// 1. Prepare data for the page (using generated proto bindings)
-		// For this scaffold, we use SimpleData message.
-		data := &pb.SimpleData{
-			Title:       "Home",
-			Description: "Welcome to your new Hudl app!",
-		}
-
-		// 2. Render the top-level component
-		html, err := rt.Render("HomePage", data)
+		// Render the top-level component using the generated wrapper
+		html, err := v.HomePage("Home", "Welcome to your new Hudl app!")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -127,6 +116,24 @@ func main() {
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write([]byte(html))
+	})
+
+	// --- Datastar SSE Events ---
+	r.Get("/events", func(w http.ResponseWriter, r *http.Request) {
+		sse := datastar.NewSSE(w, r)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				currentTime := time.Now().Format("15:04:05")
+				// Push element update to #clock
+				sse.PatchElements(fmt.Sprintf("<span id=\"clock\">%s</span>", currentTime))
+			}
+		}
 	})
 
 	port := ":8080"
@@ -210,6 +217,8 @@ func main() {
 		runDev()
 	case "build":
 		runBuild()
+	case "generate":
+		runGenerate()
 	case "version":
 		fmt.Println("hudl version 0.1.0")
 	default:
@@ -247,7 +256,84 @@ func runBuild() {
 	fmt.Println("Success: views.wasm generated.")
 }
 
+func runGenerate() {
+	fmt.Println("Generating Go wrappers...")
+
+	// Check if views directory exists
+	if _, err := os.Stat("views"); os.IsNotExist(err) {
+		fmt.Println("Error: 'views' directory not found. Are you in the project root?")
+		os.Exit(1)
+	}
+
+	// Assuming default options for now:
+	// - views dir: views
+	// - output: views/views.go
+	// - package: views
+	// - pb import: github.com/njreid/hudl/pkg/hudl/pb (need to make this configurable or detect from go.mod?)
+	// Actually, for now let's assume the user has a pb package relative to the current module.
+	
+	// Try to detect module name
+	modName := detectModuleName()
+	pbImport := ""
+	if modName != "" {
+		// HACK: For the default scaffold, we know the pb is in the library
+		// For user projects, they might define their own. 
+		// We'll need a better way to configure this later.
+		pbImport = "github.com/njreid/hudl/pkg/hudl/pb"
+	}
+
+	args := []string{"generate-go", "views",
+		"-o", "views/views.go",
+		"--package", "views",
+		"--pb-package", "pb",
+	}
+	if pbImport != "" {
+		args = append(args, "--pb-import", pbImport)
+	}
+
+	cmd := exec.Command("hudlc", args...)
+	
+	// If we have a pb import, use it. But for the generated scaffold, the pb is in `pkg/hudl/pb` inside the library?
+	// No, the generated scaffold uses `github.com/njreid/hudl/pkg/hudl/pb` for `SimpleData`.
+	// So we should pass that.
+	// But `SimpleData` is defined in `pkg/hudl/pb`.
+	// For user-defined protos, they might be elsewhere.
+	
+	// Let's pass what we know for the default scaffold.
+	// Actually, let's just run it. If message types are simple names like `SimpleData`, generated code will use `*pb.SimpleData`.
+	// We need `pb` to be imported.
+	
+	// HACK: For the default scaffold, we know the import.
+	// For general usage, we might need a config file (hudl.json/toml) later.
+	// For now, let's rely on manual flags if run directly, or sensible defaults.
+	// Since we can't easily guess, let's omit the import flag and let the user fix the imports if needed?
+	// Or try to guess.
+	
+	// Let's add a flag support to `hudl generate` later. For now, just run basic generation.
+	
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error: failed to run hudlc: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func detectModuleName() string {
+	if data, err := os.ReadFile("go.mod"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "module ") {
+				return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+			}
+		}
+	}
+	return ""
+}
+
 func runDev() {
+	// 0. Generate Go wrappers first
+	runGenerate()
+
 	fmt.Println("Starting Hudl development server...")
 
 	// 1. Try to start LSP dev server in background if not already running
@@ -340,13 +426,23 @@ func runInit(name string) {
 	}
 
 	for path, content := range files {
+		// Replace module name placeholder
+		content = strings.ReplaceAll(content, "MOD_NAME", name)
 		if err := os.WriteFile(filepath.Join(name, path), []byte(content), 0644); err != nil {
 			fmt.Printf("Error writing %s: %v\n", path, err)
 			os.Exit(1)
 		}
 	}
 
-	// 5. Fetch dependencies
+	// 5. Download datastar.js
+	fmt.Println("Downloading datastar.js...")
+	datastarURL := "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"
+	if err := downloadFile(datastarURL, filepath.Join(name, "public/datastar.js")); err != nil {
+		fmt.Printf("Warning: failed to download datastar.js: %v\n", err)
+		fmt.Println("You may need to download it manually and place it in the public/ directory.")
+	}
+
+	// 6. Fetch dependencies
 	fmt.Println("Fetching dependencies...")
 	
 	// Determine if we should use a local replace for development
@@ -373,6 +469,7 @@ func runInit(name string) {
 	deps := []string{
 		"github.com/go-chi/chi/v5",
 		"github.com/njreid/hudl",
+		"github.com/starfederation/datastar-go",
 	}
 	for _, dep := range deps {
 		fmt.Printf("  get %s...\n", dep)
@@ -396,4 +493,29 @@ func runInit(name string) {
 	fmt.Printf("To get started:\n\n")
 	fmt.Printf("  cd %s\n", name)
 	fmt.Printf("  hudl dev\n")
+}
+
+func downloadFile(url string, filepath string) error {
+	const timeout = 10 * time.Second
+	client := &http.Client{
+		Timeout: timeout,
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
 }

@@ -1,11 +1,19 @@
 use std::collections::HashMap;
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct Param {
+    pub name: String,
+    pub type_name: String,
+    pub repeated: bool,
+    pub default_value: Option<String>,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Root {
     pub nodes: Vec<Node>,
     pub css: Option<String>,
     pub name: Option<String>,      // Component name from // name: comment
-    pub data_type: Option<String>, // Data type from // data: comment
+    pub params: Vec<Param>,        // Component parameters from // param: comments
     pub imports: Vec<String>,      // Files imported via 'import { ... }'
 }
 
@@ -161,7 +169,7 @@ pub fn datastar_attr_to_html(attr: &DatastarAttr) -> (String, Option<String>) {
     } else {
         // text, show, bind, persist, ref, teleport, and dynamic HTML attributes
         match attr.name.as_str() {
-            "bind" | "text" | "show" | "persist" | "ref" | "teleport" => {
+            "bind" | "text" | "show" | "persist" | "ref" | "teleport" | "init" => {
                 html_name.push_str(&attr.name);
             }
             _ => {

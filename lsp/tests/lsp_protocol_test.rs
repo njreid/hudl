@@ -652,7 +652,8 @@ message User {
 */
 
 // name: UserCard
-// data: User
+// param: string name
+// param: int32 age
 
 el {
     div `name`
@@ -855,12 +856,12 @@ enum Role {
 */
 
 // name: UserProfile
-// data: User
+// param: User user
 
 el {
     div.profile {
-        h2 `name`
-        p `email`
+        h2 `user.name`
+        p `user.email`
     }
 }
 "#;

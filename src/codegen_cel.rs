@@ -6,7 +6,7 @@
 //! - Evaluates CEL expressions at runtime
 //! - Generates scoped CSS for component styles
 
-use crate::ast::{Node, Root, SwitchCase, datastar_attr_to_html};
+use crate::ast::{Node, Root, SwitchCase, datastar_attr_to_html, Param};
 use crate::proto::{ProtoField, ProtoSchema, ProtoType};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -83,18 +83,15 @@ pub fn generate_wasm_lib_cel(
         generate_message_decoder(&mut code, name, &msg.fields, schema)?;
     }
 
-    // Build map of component name -> data type
-    let mut component_types = HashMap::new();
+    // Build map of component name -> params
+    let mut component_params = HashMap::new();
     for (name, root) in &views {
-        let dt = root.data_type.clone().unwrap_or_default();
-        component_types.insert(name.clone(), dt);
+        component_params.insert(name.clone(), root.params.clone());
     }
 
     // Generate view render functions
     for (name, root) in views {
-        // Use the data_type from the root metadata
-        let data_type = root.data_type.as_deref();
-        generate_view_function(&mut code, &name, &root, schema, data_type, &component_types)?;
+        generate_view_function(&mut code, &name, &root, schema, &component_params)?;
     }
 
     Ok(code)
@@ -620,8 +617,7 @@ fn generate_view_function(
     name: &str,
     root: &Root,
     schema: &ProtoSchema,
-    data_type: Option<&str>,
-    component_types: &HashMap<String, String>,
+    component_params: &HashMap<String, Vec<Param>>,
 ) -> Result<(), String> {
     let fn_name = name.to_lowercase();
     let scope_class = format!("h-{}", generate_scope_id(name));
@@ -646,32 +642,83 @@ fn generate_view_function(
         ));
     }
 
-    // Always decode proto fields for use in loop contexts
+    // Always decode proto fields for use in param and loop contexts
     code.push_str("    let _proto_fields = decode_proto_message(proto_data);\n");
     code.push_str("    let mut ctx = Context::default();\n");
 
-    // If we have a data type, use the typed decoder
-    if let Some(dt) = data_type {
-        if schema.messages.contains_key(dt) {
+    // Decode parameters
+    for (i, param) in root.params.iter().enumerate() {
+        let field_num = i + 1;
+        let field_name = &param.name;
+        
+        // Generate field extraction logic
+        code.push_str(&format!("    // Param {}: {}\n", field_num, field_name));
+        code.push_str(&format!("    if let Some(v) = _proto_fields.get(&{}) {{\n", field_num));
+        
+        let proto_type = ProtoSchema::parse_type(&param.type_name);
+
+        if param.repeated {
+            code.push_str("        let list = match v {\n");
+            code.push_str("            ProtoValue::Repeated(items) => items.iter().map(|item| {\n");
+            generate_value_conversion(code, &proto_type, "item", schema, "                ")?;
+            code.push_str("            }).collect(),\n");
+            code.push_str("            single => vec![{\n");
+            generate_value_conversion(code, &proto_type, "single", schema, "                ")?;
+            code.push_str("            }],\n");
+            code.push_str("        };\n");
             code.push_str(&format!(
-                "    decode_{}(proto_data, &mut ctx);\n",
-                dt.to_lowercase()
+                "        let _ = ctx.add_variable(\"{}\", CelValue::List(Arc::new(list)));\n",
+                field_name
             ));
         } else {
-            // Fallback to generic decoding
-            code.push_str("    for (k, v) in &_proto_fields {\n");
-            code.push_str("        let _ = ctx.add_variable(&k.to_string(), proto_value_to_cel(v));\n");
+            code.push_str("        let cel_val = {\n");
+            generate_value_conversion(code, &proto_type, "v", schema, "            ")?;
+            code.push_str("        };\n");
+            code.push_str(&format!(
+                "        let _ = ctx.add_variable(\"{}\", cel_val);\n",
+                field_name
+            ));
+        }
+        code.push_str("    }");
+        
+        // Handle default value
+        if let Some(ref default) = param.default_value {
+            code.push_str(" else {\n");
+            // Simple parsing for default values in generated code
+            if proto_type == ProtoType::String {
+                code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::String(Arc::new(\"{}\".to_string())));\n", field_name, default));
+            } else if proto_type == ProtoType::Bool {
+                code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Bool({}));\n", field_name, default));
+            } else if proto_type.cel_type() == "int" {
+                code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Int({}));\n", field_name, default));
+            } else if proto_type.cel_type() == "double" {
+                code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Float({}));\n", field_name, default));
+            } else {
+                code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Null);\n", field_name));
+            }
+            code.push_str("    }\n");
+        } else {
+            // Missing field - use proto3 default if no explicit default
+            code.push_str(" else {\n");
+            if param.repeated {
+                code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::List(Arc::new(Vec::new())));\n", field_name));
+            } else {
+                // We don't have get_default_value_ext in generated code directly, 
+                // but we can generate the specific default.
+                match proto_type {
+                    ProtoType::Double | ProtoType::Float => code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Float(0.0));\n", field_name)),
+                    ProtoType::String => code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::String(Arc::new(String::new())));\n", field_name)),
+                    ProtoType::Bool => code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Bool(false));\n", field_name)),
+                    ProtoType::Message(_) => code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Null);\n", field_name)),
+                    _ => code.push_str(&format!("        let _ = ctx.add_variable(\"{}\", CelValue::Int(0));\n", field_name)),
+                }
+            }
             code.push_str("    }\n");
         }
-    } else {
-        // No data type - use generic decoding
-        code.push_str("    for (k, v) in &_proto_fields {\n");
-        code.push_str("        let _ = ctx.add_variable(&k.to_string(), proto_value_to_cel(v));\n");
-        code.push_str("    }\n");
     }
 
     for node in &root.nodes {
-        generate_node_cel_scoped(code, node, 1, "r", &scope_class, component_types)?;
+        generate_node_cel_scoped(code, node, 1, "r", &scope_class, component_params)?;
     }
 
     code.push_str("}\n");
@@ -711,7 +758,7 @@ fn generate_node_cel_scoped(
     indent: usize, 
     out_var: &str,
     scope_class: &str, 
-    component_types: &HashMap<String, String>
+    component_params: &HashMap<String, Vec<Param>>
 ) -> Result<(), String> {
     let pad = "    ".repeat(indent);
 
@@ -722,26 +769,10 @@ fn generate_node_cel_scoped(
         }
         Node::Element(el) => {
             // Check if this is a component invocation
-            // It must be in the component_types map (known components in this module)
-            let is_component = component_types.contains_key(&el.tag);
-
-            if is_component {
+            if let Some(params) = component_params.get(&el.tag) {
                 // Component invocation
-                // Syntax: ComponentName `expr` { children }
-                let arg_val = if !el.children.is_empty() {
-                    if let Node::Text(t) = &el.children[0] {
-                        if t.content.starts_with('`') && t.content.ends_with('`') {
-                            Some(&t.content[1..t.content.len()-1])
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
+                // Syntax: ComponentName key=value { children }
+                
                 code.push_str(&pad);
                 code.push_str("{\n");
                 code.push_str(&pad);
@@ -749,48 +780,59 @@ fn generate_node_cel_scoped(
                 // Pre-render children for the content slot
                 code.push_str("    let mut invocation_content = String::new();\n");
                 for child in &el.children {
-                    // Skip the first child if it was used as the proto data argument
-                    if let Some(_) = arg_val {
-                        if let Node::Text(t) = child {
-                            if t.content.starts_with('`') && t.content.ends_with('`') {
-                                continue;
-                            }
-                        }
-                    }
-                    generate_node_cel_scoped(code, child, indent + 1, "invocation_content", scope_class, component_types)?;
+                    generate_node_cel_scoped(code, child, indent + 1, "invocation_content", scope_class, component_params)?;
                 }
 
                 code.push_str(&pad);
-                if let Some(expr) = arg_val {
-                    // Pass specific data to component
-                    code.push_str(&format!(
-                        "    let component_data = cel_eval(\"{}\", &ctx);\n",
-                        escape_string(expr)
-                    ));
-                    
-                    // Get the data type for this component to encode correctly
-                    let target_type = component_types.get(&el.tag).map(|s| s.as_str()).unwrap_or("");
-                    
-                    code.push_str(&pad);
-                    code.push_str(&format!(
-                        "    let encoded_data = encode_cel_to_proto(&component_data, \"{}\");\n",
-                        target_type
-                    ));
-                    code.push_str(&pad);
-                    code.push_str(&format!(
-                        "    render_{}({}, &encoded_data, &invocation_content);\n",
-                        el.tag.to_lowercase(),
-                        out_var
-                    ));
-                } else {
-                    // Pass current data through
-                    code.push_str(&pad);
-                    code.push_str(&format!(
-                        "    render_{}({}, proto_data, &invocation_content);\n",
-                        el.tag.to_lowercase(),
-                        out_var
-                    ));
+                code.push_str("    let mut component_proto = Vec::new();\n");
+                
+                // Encode each parameter
+                for (i, param) in params.iter().enumerate() {
+                    let field_num = i + 1;
+                    let proto_type = ProtoSchema::parse_type(&param.type_name);
+                    // Use a string representation of the type for the generated code
+                    let type_lit = match proto_type {
+                        ProtoType::String => "Some(&ProtoType::String)",
+                        ProtoType::Bool => "Some(&ProtoType::Bool)",
+                        ProtoType::Int32 => "Some(&ProtoType::Int32)",
+                        ProtoType::Int64 => "Some(&ProtoType::Int64)",
+                        ProtoType::Double => "Some(&ProtoType::Double)",
+                        ProtoType::Float => "Some(&ProtoType::Float)",
+                        _ => "None",
+                    };
+
+                    if let Some(attr_val) = el.attributes.get(&param.name) {
+                        if attr_val.contains('`') {
+                            // Dynamic value
+                            let expr = attr_val.trim_matches('`');
+                            code.push_str(&pad);
+                            code.push_str(&format!(
+                                "    encode_field(&mut component_proto, {}, &cel_eval(\"{}\", &ctx), {});\n",
+                                field_num, escape_string(expr), type_lit
+                            ));
+                        } else {
+                            // Static value - wrap in CelValue
+                            code.push_str(&pad);
+                            code.push_str(&format!(
+                                "    encode_field(&mut component_proto, {}, &CelValue::String(Arc::new(\"{}\".to_string())), {});\n",
+                                field_num, escape_string(attr_val), type_lit
+                            ));
+                        }
+                    } else if let Some(default) = &param.default_value {
+                        code.push_str(&pad);
+                        code.push_str(&format!(
+                            "    encode_field(&mut component_proto, {}, &CelValue::String(Arc::new(\"{}\".to_string())), {});\n",
+                            field_num, escape_string(default), type_lit
+                        ));
+                    }
                 }
+
+                code.push_str(&pad);
+                code.push_str(&format!(
+                    "    render_{}({}, &component_proto, &invocation_content);\n",
+                    el.tag.to_lowercase(),
+                    out_var
+                ));
                 
                 code.push_str(&pad);
                 code.push_str("}\n");
@@ -854,7 +896,7 @@ fn generate_node_cel_scoped(
 
             // Children
             for child in &el.children {
-                generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_types)?;
+                generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_params)?;
             }
 
             // Closing tag
@@ -879,7 +921,7 @@ fn generate_node_cel_scoped(
                 ));
 
                 for child in then_block {
-                    generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_types)?;
+                    generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_params)?;
                 }
 
                 code.push_str(&pad);
@@ -888,7 +930,7 @@ fn generate_node_cel_scoped(
                 if let Some(else_nodes) = else_block {
                     code.push_str(" else {\n");
                     for child in else_nodes {
-                        generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_types)?;
+                        generate_node_cel_scoped(code, child, indent + 1, out_var, scope_class, component_params)?;
                     }
                     code.push_str(&pad);
                     code.push_str("}");
@@ -930,7 +972,7 @@ fn generate_node_cel_scoped(
                 ));
 
                 for child in body {
-                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&loop_ctx", out_var, scope_class, component_types)?;
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&loop_ctx", out_var, scope_class, component_params)?;
                 }
 
                 code.push_str(&pad);
@@ -969,7 +1011,7 @@ fn generate_node_cel_scoped(
                     ));
 
                     for child in children {
-                        generate_node_cel_scoped(code, child, indent + 2, out_var, scope_class, component_types)?;
+                        generate_node_cel_scoped(code, child, indent + 2, out_var, scope_class, component_params)?;
                     }
 
                     code.push_str(&pad);
@@ -985,7 +1027,7 @@ fn generate_node_cel_scoped(
                     }
 
                     for child in def_nodes {
-                        generate_node_cel_scoped(code, child, indent + 2, out_var, scope_class, component_types)?;
+                        generate_node_cel_scoped(code, child, indent + 2, out_var, scope_class, component_params)?;
                     }
 
                     code.push_str(&pad);
@@ -1021,7 +1063,7 @@ fn generate_node_cel_with_ctx_scoped(
     ctx_var: &str,
     out_var: &str,
     scope_class: &str,
-    component_types: &HashMap<String, String>,
+    component_params: &HashMap<String, Vec<Param>>,
 ) -> Result<(), String> {
     let pad = "    ".repeat(indent);
 
@@ -1032,25 +1074,8 @@ fn generate_node_cel_with_ctx_scoped(
         }
         Node::Element(el) => {
             // Check if this is a component invocation
-            let is_component = component_types.contains_key(&el.tag);
-
-            if is_component {
+            if let Some(params) = component_params.get(&el.tag) {
                 // Component invocation
-                // Syntax: ComponentName `expr`
-                let arg_val = if !el.children.is_empty() {
-                    if let Node::Text(t) = &el.children[0] {
-                        if t.content.starts_with('`') && t.content.ends_with('`') {
-                            Some(&t.content[1..t.content.len()-1])
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
                 code.push_str(&pad);
                 code.push_str("{\n");
                 code.push_str(&pad);
@@ -1058,48 +1083,56 @@ fn generate_node_cel_with_ctx_scoped(
                 // Pre-render children for the content slot
                 code.push_str("    let mut invocation_content = String::new();\n");
                 for child in &el.children {
-                    if let Some(_) = arg_val {
-                        if let Node::Text(t) = child {
-                            if t.content.starts_with('`') && t.content.ends_with('`') {
-                                continue;
-                            }
-                        }
-                    }
-                    generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, "invocation_content", scope_class, component_types)?;
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, "invocation_content", scope_class, component_params)?;
                 }
 
                 code.push_str(&pad);
-                if let Some(expr) = arg_val {
-                    // Pass specific data to component
-                    code.push_str(&format!(
-                        "    let component_data = cel_eval(\"{}\", {});\n",
-                        escape_string(expr),
-                        ctx_var
-                    ));
-                    
-                    // Get the data type for this component to encode correctly
-                    let target_type = component_types.get(&el.tag).map(|s| s.as_str()).unwrap_or("");
+                code.push_str("    let mut component_proto = Vec::new();\n");
+                
+                // Encode each parameter
+                for (i, param) in params.iter().enumerate() {
+                    let field_num = i + 1;
+                    let proto_type = ProtoSchema::parse_type(&param.type_name);
+                    let type_lit = match proto_type {
+                        ProtoType::String => "Some(&ProtoType::String)",
+                        ProtoType::Bool => "Some(&ProtoType::Bool)",
+                        ProtoType::Int32 => "Some(&ProtoType::Int32)",
+                        ProtoType::Int64 => "Some(&ProtoType::Int64)",
+                        ProtoType::Double => "Some(&ProtoType::Double)",
+                        ProtoType::Float => "Some(&ProtoType::Float)",
+                        _ => "None",
+                    };
 
-                    code.push_str(&pad);
-                    code.push_str(&format!(
-                        "    let encoded_data = encode_cel_to_proto(&component_data, \"{}\");\n",
-                        target_type
-                    ));
-                    code.push_str(&pad);
-                    code.push_str(&format!(
-                        "    render_{}({}, &encoded_data, &invocation_content);\n",
-                        el.tag.to_lowercase(),
-                        out_var
-                    ));
-                } else {
-                    // Pass current data through
-                    code.push_str(&pad);
-                    code.push_str(&format!(
-                        "    render_{}({}, proto_data, &invocation_content);\n",
-                        el.tag.to_lowercase(),
-                        out_var
-                    ));
+                    if let Some(attr_val) = el.attributes.get(&param.name) {
+                        if attr_val.contains('`') {
+                            let expr = attr_val.trim_matches('`');
+                            code.push_str(&pad);
+                            code.push_str(&format!(
+                                "    encode_field(&mut component_proto, {}, &cel_eval(\"{}\", {}), {});\n",
+                                field_num, escape_string(expr), ctx_var, type_lit
+                            ));
+                        } else {
+                            code.push_str(&pad);
+                            code.push_str(&format!(
+                                "    encode_field(&mut component_proto, {}, &CelValue::String(Arc::new(\"{}\".to_string())), {});\n",
+                                field_num, escape_string(attr_val), type_lit
+                            ));
+                        }
+                    } else if let Some(default) = &param.default_value {
+                        code.push_str(&pad);
+                        code.push_str(&format!(
+                            "    encode_field(&mut component_proto, {}, &CelValue::String(Arc::new(\"{}\".to_string())), {});\n",
+                            field_num, escape_string(default), type_lit
+                        ));
+                    }
                 }
+
+                code.push_str(&pad);
+                code.push_str(&format!(
+                    "    render_{}({}, &component_proto, &invocation_content);\n",
+                    el.tag.to_lowercase(),
+                    out_var
+                ));
 
                 code.push_str(&pad);
                 code.push_str("}\n");
@@ -1156,7 +1189,7 @@ fn generate_node_cel_with_ctx_scoped(
             code.push_str(&format!("{}.push_str(\">\");\n", out_var));
 
             for child in &el.children {
-                generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_types)?;
+                generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_params)?;
             }
 
             code.push_str(&pad);
@@ -1181,7 +1214,7 @@ fn generate_node_cel_with_ctx_scoped(
                 ));
 
                 for child in then_block {
-                    generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_types)?;
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_params)?;
                 }
 
                 code.push_str(&pad);
@@ -1190,7 +1223,7 @@ fn generate_node_cel_with_ctx_scoped(
                 if let Some(else_nodes) = else_block {
                     code.push_str(" else {\n");
                     for child in else_nodes {
-                        generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_types)?;
+                        generate_node_cel_with_ctx_scoped(code, child, indent + 1, ctx_var, out_var, scope_class, component_params)?;
                     }
                     code.push_str(&pad);
                     code.push_str("}");
@@ -1233,7 +1266,7 @@ fn generate_node_cel_with_ctx_scoped(
                 ));
 
                 for child in body {
-                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&inner_ctx", out_var, scope_class, component_types)?;
+                    generate_node_cel_with_ctx_scoped(code, child, indent + 2, "&inner_ctx", out_var, scope_class, component_params)?;
                 }
 
                 code.push_str(&pad);
@@ -1272,7 +1305,7 @@ fn generate_node_cel_with_ctx_scoped(
                     ));
 
                     for child in children {
-                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, out_var, scope_class, component_types)?;
+                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, out_var, scope_class, component_params)?;
                     }
 
                     code.push_str(&pad);
@@ -1288,7 +1321,7 @@ fn generate_node_cel_with_ctx_scoped(
                     }
 
                     for child in def_nodes {
-                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, out_var, scope_class, component_types)?;
+                        generate_node_cel_with_ctx_scoped(code, child, indent + 2, ctx_var, out_var, scope_class, component_params)?;
                     }
 
                     code.push_str(&pad);
@@ -1532,7 +1565,10 @@ message SimpleData {
 }
 */
 
-// data: SimpleData
+// name: Simple
+// param: string title
+// param: string description
+// param: repeated string features
 
 el {
     div "`title`"
@@ -1545,10 +1581,9 @@ el {
         let views = vec![("Simple".to_string(), root)];
         let rust_code = generate_wasm_lib_cel(views, &schema).expect("Codegen failed");
 
-        // Should generate a typed decoder
-        assert!(rust_code.contains("decode_simpledata"));
-        // Should reference the decoder
-        assert!(rust_code.contains("decode_simpledata(proto_data, &mut ctx)"));
+        // Should contain individual param extraction
+        assert!(rust_code.contains("// Param 1: title"));
+        assert!(rust_code.contains("ctx.add_variable(\"title\""));
     }
 
     #[test]

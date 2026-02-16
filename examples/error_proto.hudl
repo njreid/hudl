@@ -6,7 +6,7 @@ message ErrorData {
 */
 
 // name: ErrorProto
-// data: ErrorData
+// param: string name
 
 el {
     div `name`

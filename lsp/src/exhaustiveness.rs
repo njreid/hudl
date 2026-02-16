@@ -63,6 +63,8 @@ pub fn check_switch(
     None
 }
 
+use crate::param::{ParamDef, ParamDef as Param};
+
 /// Check switch exhaustiveness using proto schema for enum types.
 ///
 /// This uses the proto definitions in the template to validate
@@ -70,7 +72,7 @@ pub fn check_switch(
 pub fn check_switch_with_proto(
     switch_info: &SwitchInfo,
     schema: &ProtoSchema,
-    data_type: Option<&str>,
+    params: &[ParamDef],
 ) -> Option<Diagnostic> {
     // If there's a default, it's always exhaustive
     if switch_info.has_default {
@@ -78,51 +80,55 @@ pub fn check_switch_with_proto(
     }
 
     // Try to find the enum type for the switch expression
-    let enum_name = if let Some(data_type) = data_type {
-        // Try to resolve the field path to find the enum type
-        match schema.resolve_field_path(data_type, &switch_info.expr) {
-            Ok(field_type) => {
-                match field_type {
-                    hudlc::proto::ProtoType::Enum(name) => Some(name.clone()),
-                    hudlc::proto::ProtoType::Message(name) => {
-                        // The field might be a message with an enum type name
-                        // Check if there's an enum with this name
-                        if schema.get_enum(name).is_some() {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }
-            }
-            Err(_) => {
-                // Try direct enum lookup (e.g., switch on a variable that is an enum)
-                // The expression might directly reference an enum type
-                let parts: Vec<&str> = switch_info.expr.split('.').collect();
-                let _last_part = parts.last().unwrap_or(&"");
+    let mut enum_name = None;
 
-                // Check if any enum matches based on case patterns
-                for (name, _) in &schema.enums {
-                    let values = schema.get_enum_values(name).unwrap_or_default();
-                    // If all cases match values from this enum, it's likely the right one
-                    if switch_info.cases.iter().all(|c| values.contains(c)) {
-                        return check_enum_exhaustiveness(switch_info, name, &values);
+    // Resolve the expression against params
+    let parts: Vec<&str> = switch_info.expr.split('.').collect();
+    let root_var = parts[0];
+
+    if let Some(param) = params.iter().find(|p| p.name == root_var) {
+        if parts.len() == 1 {
+            // Direct switch on param
+            match hudlc::proto::ProtoSchema::parse_type(&param.type_name) {
+                hudlc::proto::ProtoType::Enum(name) => enum_name = Some(name),
+                hudlc::proto::ProtoType::Message(name) => {
+                    if schema.get_enum(&name).is_some() {
+                        enum_name = Some(name);
                     }
                 }
-                None
+                _ => {}
+            }
+        } else {
+            // Switch on field of param
+            let field_path = parts[1..].join(".");
+            match schema.resolve_field_path(&param.type_name, &field_path) {
+                Ok(field_type) => {
+                    match field_type {
+                        hudlc::proto::ProtoType::Enum(name) => enum_name = Some(name.clone()),
+                        hudlc::proto::ProtoType::Message(name) => {
+                            if schema.get_enum(name).is_some() {
+                                enum_name = Some(name.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Err(_) => {}
             }
         }
-    } else {
-        // No data type specified, try to infer from case patterns
+    }
+
+    if enum_name.is_none() {
+        // Fallback: Check if any enum matches based on case patterns
         for (name, _) in &schema.enums {
             let values = schema.get_enum_values(name).unwrap_or_default();
-            if switch_info.cases.iter().any(|c| values.contains(c)) {
-                return check_enum_exhaustiveness(switch_info, name, &values);
+            // If all cases match values from this enum, it's likely the right one
+            if !switch_info.cases.is_empty() && switch_info.cases.iter().all(|c| values.contains(c)) {
+                enum_name = Some(name.clone());
+                break;
             }
         }
-        None
-    };
+    }
 
     if let Some(enum_name) = enum_name {
         if let Some(values) = schema.get_enum_values(&enum_name) {
