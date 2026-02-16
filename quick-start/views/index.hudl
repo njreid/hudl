@@ -1,0 +1,22 @@
+import {
+    "./layout"
+}
+
+/**
+message SimpleData {
+    string title = 1;
+    string description = 2;
+}
+*/
+// name: HomePage
+// param: string title
+// param: string description
+
+el {
+    AppLayout title=`title` {
+        div {
+            h2 "Welcome!"
+            p `description`
+        }
+    }
+}

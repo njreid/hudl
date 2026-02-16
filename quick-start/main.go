@@ -51,7 +51,7 @@ func main() {
 	// --- Routes ---
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		// 1. Prepare data for the page (using generated proto bindings)
-		// For this scaffold, we use IndexData message.
+		// For this scaffold, we use SimpleData message.
 		data := &pb.SimpleData{
 			Title:       "Home",
 			Description: "Welcome to your new Hudl app!",

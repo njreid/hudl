@@ -1,0 +1,22 @@
+/**
+message LayoutData {
+    string title = 1;
+}
+*/
+// name: AppLayout
+// param: string title
+
+el {
+    html lang=en {
+        head {
+            meta charset=utf-8
+            title `title`
+            _stylesheet "/style.css"
+        }
+        body {
+            header { h1 "Hudl Project" }
+            main { #content }
+            footer { p "Built with Hudl" }
+        }
+    }
+}
