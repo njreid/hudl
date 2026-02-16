@@ -239,25 +239,82 @@ On save, the LSP normalizes your code:
 
 ---
 
+## Getting Started
+
+The easiest way to start a new Hudl project is using the **Hudl CLI**.
+
+### 1. Install the Toolchain
+
+Currently, Hudl requires building from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/njreid/hudl.git
+cd hudl
+
+# Build and install the CLI and compiler
+make build
+go install ./cmd/hudl
+```
+
+### 2. Initialize a New Project
+
+```bash
+hudl init my-app
+cd my-app
+```
+
+This creates a standard scaffold with:
+* `main.go`: A Go server using `chi` and `hudl` runtime.
+* `views/`: Directory for your `.hudl` templates.
+* `public/`: Static assets, including `datastar.js`.
+
+---
+
 ## Development Mode
 
-Hudl provides a high-productivity "Dev Mode" using the LSP as a rendering sidecar.
+Hudl provides a high-productivity "Dev Mode" with automatic hot-reload.
 
-### 1. Start the LSP Dev Server
+### Using the CLI (Recommended)
 
-Run the LSP in dev-server mode from your project root:
-
-```bash
-hudl-lsp --dev-server --port 9999 --watch ./views
-```
-
-### 2. Configure the Go Runtime
-
-In your Go application, set the environment variables:
+Simply run:
 
 ```bash
-export HUDL_DEV=1
-export HUDL_DEV_ADDR=localhost:9999
+hudl dev
 ```
 
-The runtime will now use SSE-based hot-reload, automatically refreshing your browser when you save a `.hudl` file.
+This command:
+1.  Generates Go wrappers for your views.
+2.  Starts the LSP Dev Server in the background.
+3.  Runs your Go application with `HUDL_DEV=1`.
+
+### Manual Setup
+
+If you prefer manual control:
+
+1. **Start the LSP Dev Server**:
+   ```bash
+   hudl-lsp --dev-server --port 9999 --watch ./views
+   ```
+
+2. **Configure the Go Runtime**:
+   Set the environment variables before running your app:
+   ```bash
+   export HUDL_DEV=1
+   export HUDL_DEV_ADDR=localhost:9999
+   go run .
+   ```
+
+The runtime will now use SSE-based hot-reload via the LSP, automatically refreshing your browser when you save any `.hudl` file.
+
+---
+
+## Production Build
+
+For production, Hudl templates are compiled into a high-performance WebAssembly module.
+
+```bash
+hudl build
+```
+
+This generates `views.wasm`, which your Go application will load automatically when `HUDL_DEV` is not set.
