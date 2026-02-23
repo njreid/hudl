@@ -1,0 +1,34 @@
+/**
+message AnimationData {
+    bool show = 1;
+}
+*/
+
+// name: Animations
+// param: AnimationData data
+
+el {
+    div {
+        button ~on:click="$show = !$show" "Toggle"
+        
+        div.fade-box {
+            ~ {
+                show "$show"
+                // Datastar handles class transitions if configured, 
+                // but here we just toggle a class
+                .visible "$show"
+            }
+            "I fade in and out"
+        }
+    }
+}
+
+css {
+    .fade-box {
+        opacity: 0;
+        transition: opacity 0.5s;
+    }
+    .fade-box.visible {
+        opacity: 1;
+    }
+}

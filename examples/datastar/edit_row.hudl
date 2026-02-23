@@ -1,0 +1,57 @@
+/**
+message Contact {
+    string id = 1;
+    string name = 2;
+    string email = 3;
+}
+message EditRowData {
+    repeated Contact contacts = 1;
+    string editing_id = 2;
+}
+*/
+
+// name: EditRow
+// param: EditRowData data
+
+el {
+    table {
+        thead {
+            tr {
+                th Name
+                th Email
+                th Action
+            }
+        }
+        tbody {
+            each contact `data.contacts` {
+                if `contact.id == data.editing_id` {
+                    tr {
+                        td { input name="name" value=`contact.name` }
+                        td { input name="email" value=`contact.email` }
+                        td {
+                            button {
+                                ~ { on:click "@put('/contacts/' + '`contact.id`')" }
+                                Save
+                            }
+                            button {
+                                ~ { on:click "@get('/contacts/' + '`contact.id`')" }
+                                Cancel
+                            }
+                        }
+                    }
+                } else {
+                    tr {
+                        td `contact.name`
+                        td `contact.email`
+                        td {
+                            button {
+                                ~ { on:click "@get('/contacts/' + '`contact.id` + '/edit')" }
+                                Edit
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

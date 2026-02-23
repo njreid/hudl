@@ -1,0 +1,30 @@
+/**
+message EventData {
+    string message = 1;
+}
+*/
+
+// name: EventBubbling
+// param: EventData data
+
+el {
+    div {
+        ~ {
+            on:click "console.log('Outer div clicked')"
+        }
+        
+        div.inner {
+            ~ {
+                on:click "console.log('Inner div clicked')"
+            }
+            
+            button {
+                ~ {
+                    on:click "$message = 'Button clicked'; console.log($message)"
+                    on:click~stop "console.log('Propagation stopped')"
+                }
+                "Click me"
+            }
+        }
+    }
+}

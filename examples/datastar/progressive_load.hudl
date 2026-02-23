@@ -1,0 +1,31 @@
+/**
+message LoadData {
+    string content = 1;
+    bool loaded = 2;
+}
+*/
+
+// name: ProgressiveLoad
+// param: LoadData data
+
+el {
+    div {
+        h2 "Progressive Load"
+        
+        div.content-area {
+            ~ {
+                on:load "@get('/progressive-content')"
+            }
+            
+            if `data.loaded` {
+                div `data.content`
+            } else {
+                div.loading-skeleton {
+                    div.line ""
+                    div.line ""
+                    div.line ""
+                }
+            }
+        }
+    }
+}

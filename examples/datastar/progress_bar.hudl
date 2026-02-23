@@ -1,0 +1,39 @@
+/**
+message ProgressData {
+    int32 progress = 1;
+    string status = 2;
+    bool complete = 3;
+}
+*/
+
+// name: ProgressBar
+// param: ProgressData data
+
+el {
+    div {
+        h2 "Job Progress"
+        
+        div.progress-container {
+            div.progress-bar {
+                ~ {
+                    style:width "`data.progress`%"
+                }
+                `data.progress` "%"
+            }
+        }
+
+        div.status `data.status`
+
+        if `!data.complete` {
+            div {
+                ~ {
+                    on:load "@get('/job-status')"
+                    // Polling fallback if SSE not used
+                    on:interval:2s "@get('/job-status')"
+                }
+            }
+        } else {
+            button ~on:click="@post('/job-reset')" "Reset Job"
+        }
+    }
+}

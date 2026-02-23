@@ -1,0 +1,29 @@
+/**
+message LazyContent {
+    string html = 1;
+    bool loaded = 2;
+}
+*/
+
+// name: LazyLoad
+// param: LazyContent content
+
+el {
+    div {
+        h2 "Lazy Loading Example"
+        
+        div.placeholder {
+            ~ {
+                if `!content.loaded` {
+                    on:intersect~once "@get('/lazy-content')"
+                }
+            }
+            
+            if `content.loaded` {
+                div { #raw `content.html` }
+            } else {
+                div.spinner "Loading content..."
+            }
+        }
+    }
+}

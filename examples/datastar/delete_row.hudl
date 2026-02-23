@@ -1,0 +1,45 @@
+/**
+message User {
+    string id = 1;
+    string name = 2;
+    string email = 3;
+}
+message UserList {
+    repeated User users = 1;
+}
+*/
+
+// name: DeleteRow
+// param: UserList data
+
+el {
+    table {
+        thead {
+            tr {
+                th Name
+                th Email
+                th Action
+            }
+        }
+        tbody {
+            each user `data.users` {
+                tr {
+                    ~ {
+                        ref "row_`user.id`"
+                    }
+                    td `user.name`
+                    td `user.email`
+                    td {
+                        button {
+                            ~ {
+                                on:click~once "@delete('/users/' + '`user.id`')"
+                                on:fetch "evt.detail.type == 'started' && $row_`user.id`.classList.add('fade-out')"
+                            }
+                            Delete
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

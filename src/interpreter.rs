@@ -226,8 +226,13 @@ fn render_element(
         output.push(' ');
         output.push_str(&html_attr);
         if let Some(val) = html_val {
+            let rendered = if val.contains('`') {
+                render_interpolated_string(&val, ctx)?
+            } else {
+                val
+            };
             output.push_str("=\"");
-            output.push_str(&val.replace('"', "&quot;"));
+            output.push_str(&rendered.replace('"', "&quot;"));
             output.push('"');
         }
     }

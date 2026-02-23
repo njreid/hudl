@@ -1,0 +1,32 @@
+/**
+message Item {
+    string id = 1;
+    string label = 2;
+    bool completed = 3;
+}
+*/
+
+// name: Patch
+// param: Item item
+
+el {
+    div {
+        ~ {
+            let:completed `item.completed`
+        }
+
+        span {
+            ~ {
+                .completed "$completed"
+                text `item.label`
+            }
+        }
+
+        button {
+            ~ {
+                on:click "@patch('/items/' + '`item.id`')"
+            }
+            "Toggle Completed"
+        }
+    }
+}

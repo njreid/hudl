@@ -1,0 +1,56 @@
+/**
+message ValidationErrors {
+    string email = 1;
+    string username = 2;
+}
+message FormData {
+    string email = 1;
+    string username = 2;
+    ValidationErrors errors = 3;
+}
+*/
+
+// name: InlineValidation
+// param: FormData form
+
+el {
+    form {
+        ~ {
+            on:submit~prevent "@post('/signup')"
+        }
+
+        div.field {
+            label "Email Address"
+            input name="email" type="email" value=`form.email` {
+                ~ {
+                    on:input~debounce:500ms "@post('/validate/email')"
+                }
+            }
+            div.error {
+                ~ {
+                    text "$errors.email"
+                    show "$errors.email"
+                }
+                `form.errors.email`
+            }
+        }
+
+        div.field {
+            label "Username"
+            input name="username" type="text" value=`form.username` {
+                ~ {
+                    on:input~debounce:500ms "@post('/validate/username')"
+                }
+            }
+            div.error {
+                ~ {
+                    text "$errors.username"
+                    show "$errors.username"
+                }
+                `form.errors.username`
+            }
+        }
+
+        button type="submit" Signup
+    }
+}

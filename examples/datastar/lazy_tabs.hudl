@@ -1,0 +1,42 @@
+/**
+message Tab {
+    string id = 1;
+    string label = 2;
+    string content = 3;
+}
+message TabData {
+    repeated Tab tabs = 1;
+    string active_tab_id = 2;
+}
+*/
+
+// name: LazyTabs
+// param: TabData data
+
+el {
+    div {
+        ~ {
+            let:activeTab `data.active_tab_id`
+        }
+
+        div.tabs-header {
+            each tab `data.tabs` {
+                button {
+                    ~ {
+                        on:click "$activeTab = '`tab.id`'; @get('/tabs/' + '`tab.id`')"
+                        .active "$activeTab == '`tab.id`'"
+                    }
+                    `tab.label`
+                }
+            }
+        }
+
+        div#tab-content {
+            each tab `data.tabs` {
+                if `tab.id == data.active_tab_id` {
+                    div `tab.content`
+                }
+            }
+        }
+    }
+}

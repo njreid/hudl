@@ -1,0 +1,55 @@
+/**
+message Contact {
+    string id = 1;
+    string name = 2;
+    string email = 3;
+}
+message SearchResults {
+    repeated Contact contacts = 1;
+    bool loading = 2;
+}
+*/
+
+// name: ActiveSearch
+// param: SearchResults results
+
+el {
+    div {
+        ~ {
+            let:query ""
+            let:loading false
+        }
+
+        div.search-box {
+            input~>query~debounce:300ms type="search" placeholder="Search contacts..." {
+                ~ {
+                    on:input "$loading = true; @get('/contacts/search?q=' + $query)"
+                    on:fetch "$loading = evt.detail.type == 'started'"
+                }
+            }
+            div ~show="$loading" "Searching..."
+        }
+
+        table {
+            thead {
+                tr {
+                    th "Name"
+                    th "Email"
+                }
+            }
+            tbody id="search-results" {
+                each contact `results.contacts` {
+                    tr {
+                        td `contact.name`
+                        td `contact.email`
+                    }
+                }
+                if `size(results.contacts) == 0 && !results.loading` {
+                    tr {
+                        td colspan="2" "No contacts found"
+                    }
+                }
+            }
+        }
+    }
+}

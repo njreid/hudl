@@ -5,7 +5,7 @@
 //! - Nested scopes from `each` nodes (introduces loop variables)
 //! - CEL expression local variables (e.g., list comprehension variables)
 
-use hudlc::proto::{ProtoSchema, ProtoType, ProtoMessage};
+use hudlc::proto::{ProtoSchema, ProtoType};
 use crate::param::{ParamDef, extract_metadata};
 use std::collections::HashMap;
 
@@ -122,20 +122,6 @@ pub fn build_root_scope(schema: &ProtoSchema, params: &[ParamDef]) -> Scope {
     }
 
     scope
-}
-
-/// Add all fields of a message to a scope
-fn add_message_fields_to_scope(scope: &mut Scope, message: &ProtoMessage, source: VarSource) {
-    for field in &message.fields {
-        scope.add_var(
-            field.name.clone(),
-            VarInfo {
-                proto_type: field.field_type.clone(),
-                repeated: field.repeated,
-                source: source.clone(),
-            },
-        );
-    }
 }
 
 /// Extract scopes from the AST, tracking `each` loop variables

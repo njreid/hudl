@@ -46,25 +46,34 @@ pub fn pre_parse(input: &str) -> String {
             }
         }
 
-        // Handle quoted strings - pass through unchanged (but handle backticks inside)
+        // Handle quoted strings - if they contain backticks, wrap in raw strings
         if c == '"' {
-            result.push(c);
+            let start = i;
             i += 1;
+            let mut has_backtick = false;
             while i < chars.len() && chars[i] != '"' {
+                if chars[i] == '`' {
+                    has_backtick = true;
+                }
                 if chars[i] == '\\' && i + 1 < chars.len() {
-                    // Escape sequence
-                    result.push(chars[i]);
-                    i += 1;
-                    result.push(chars[i]);
-                    i += 1;
-                } else {
-                    result.push(chars[i]);
                     i += 1;
                 }
-            }
-            if i < chars.len() {
-                result.push(chars[i]); // closing quote
                 i += 1;
+            }
+            
+            if i < chars.len() {
+                i += 1; // closing quote
+                let content: String = chars[start..i].iter().collect();
+                if has_backtick {
+                    result.push('#');
+                    result.push_str(&content);
+                    result.push('#');
+                } else {
+                    result.push_str(&content);
+                }
+            } else {
+                result.push('"');
+                i = start + 1;
             }
             continue;
         }
@@ -86,6 +95,20 @@ pub fn pre_parse(input: &str) -> String {
                 result.push(chars[i]);
                 i += 1;
             }
+            continue;
+        }
+
+        // Handle signal references: $name
+        if c == '$' {
+            let start = i;
+            i += 1;
+            while i < chars.len() && is_ident_char(chars[i]) {
+                i += 1;
+            }
+            let signal: String = chars[start..i].iter().collect();
+            result.push('"');
+            result.push_str(&signal);
+            result.push('"');
             continue;
         }
 
@@ -148,7 +171,7 @@ pub fn pre_parse(input: &str) -> String {
                     continue;
                 }
 
-                // Check for keywords
+                // Exclude Hudl keywords from quoting (they need special handling in transformer)
                 let keywords = ["if", "else", "each", "switch", "case", "default", "import", "el", "css"];
                 if keywords.contains(&full_ident.as_str()) {
                     result.push_str("__hudl_");
@@ -156,14 +179,16 @@ pub fn pre_parse(input: &str) -> String {
                     continue;
                 }
 
-                // Quote if it's not a plain identifier
-                // Plain identifier: only letters, numbers, _, - and doesn't start with digit/path
-                let is_plain = !full_ident.contains('/') && 
-                              !full_ident.contains('.') && 
-                              !full_ident.contains('&') && 
-                              !full_ident.contains('#') &&
-                              !full_ident.contains(':') &&
-                              is_ident_start(full_ident.chars().next().unwrap_or(' '));
+                // Plain identifier: follows KDL v1 rules exactly
+                // Allowed: alphanumeric, _, -, ., +, $, @, *, !, ?
+                // Cannot start with digit.
+                let is_plain = is_ident_start(full_ident.chars().next().unwrap_or(' ')) &&
+                              full_ident.chars().all(|c| {
+                                  c.is_ascii_alphanumeric() || 
+                                  c == '_' || c == '-' || c == '.' ||
+                                  c == '+' || c == '$' || c == '@' || c == '*' || 
+                                  c == '!' || c == '?'
+                              });
 
                 if !is_plain {
                     result.push('"');
@@ -278,12 +303,20 @@ pub fn pre_parse(input: &str) -> String {
         }
 
         // Handle numeric values with units
-        if c.is_ascii_digit() {
+        if c.is_ascii_digit() || (c == '.' && i + 1 < chars.len() && chars[i+1].is_ascii_digit()) {
             let prev = if i > 0 { Some(chars[i - 1]) } else { None };
             if prev.is_none() || prev == Some(' ') || prev == Some('\t') ||
-               prev == Some('{') || prev == Some(';') || prev == Some('\n') || prev == Some('}') {
+               prev == Some('{') || prev == Some(';') || prev == Some('\n') || prev == Some('}') || prev == Some('=') {
                 let start = i;
-                while i < chars.len() && chars[i].is_ascii_digit() {
+                let mut has_decimal = false;
+                if chars[i] == '.' {
+                    has_decimal = true;
+                    i += 1;
+                }
+                while i < chars.len() && (chars[i].is_ascii_digit() || (chars[i] == '.' && !has_decimal)) {
+                    if chars[i] == '.' {
+                        has_decimal = true;
+                    }
                     i += 1;
                 }
                 if i < chars.len() && chars[i].is_ascii_alphabetic() {
@@ -325,7 +358,7 @@ fn is_tilde_attr_char(c: char) -> bool {
 }
 
 fn is_selector_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '&' || c == ':' || c == '#' || c == '/' || c == '~'
+    c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '&' || c == ':' || c == '#' || c == '/' || c == '~' || c == '`'
 }
 
 #[cfg(test)]
@@ -366,6 +399,12 @@ mod tests {
     fn test_binding_shorthand() {
         let result = pre_parse("input~>username");
         assert!(result.contains("\"~bind\"=\"username\""));
+    }
+
+    #[test]
+    fn test_binding_shorthand_with_modifiers() {
+        let result = pre_parse("input~>query~debounce:300ms");
+        assert!(result.contains("\"~bind~debounce:300ms\"=\"query\""));
     }
 
     #[test]

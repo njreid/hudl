@@ -1,0 +1,46 @@
+/**
+message User {
+    string id = 1;
+    string firstName = 2;
+    string lastName = 3;
+    string email = 4;
+}
+*/
+
+// name: ClickToEdit
+// param: User user
+
+el {
+    div id="contact_`user.id`" {
+        ~ {
+            let:editing false
+        }
+
+        div ~show="!$editing" {
+            label "First Name"
+            div `user.firstName`
+            label "Last Name"
+            div `user.lastName`
+            label "Email"
+            div `user.email`
+            button ~on:click="$editing = true" "Edit"
+        }
+
+        form ~show="$editing" ~on:submit~prevent="@put('/contacts/' + '`user.id`'); $editing = false" {
+            label {
+                "First Name"
+                input name="firstName" value=`user.firstName`
+            }
+            label {
+                "Last Name"
+                input name="lastName" value=`user.lastName`
+            }
+            label {
+                "Email"
+                input name="email" value=`user.email`
+            }
+            button type="submit" "Save"
+            button ~on:click="$editing = false" "Cancel"
+        }
+    }
+}

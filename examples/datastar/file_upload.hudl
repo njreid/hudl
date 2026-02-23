@@ -1,0 +1,43 @@
+/**
+message UploadStatus {
+    string message = 1;
+    bool uploading = 2;
+    int32 progress = 3;
+}
+*/
+
+// name: FileUpload
+// param: UploadStatus status
+
+el {
+    form {
+        ~ {
+            on:submit~prevent "@post('/upload')"
+        }
+
+        input type="file" name="file" {
+            ~ {
+                on:change "$hasFile = true"
+            }
+        }
+
+        button type="submit" {
+            ~ {
+                disabled "!$hasFile || $uploading"
+            }
+            "Upload"
+        }
+
+        if `status.uploading` {
+            div.progress {
+                div.progress-bar {
+                    ~ { style:width "`status.progress`%" }
+                }
+            }
+        }
+
+        if `size(status.message) > 0` {
+            div.message `status.message`
+        }
+    }
+}

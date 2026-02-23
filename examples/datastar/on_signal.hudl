@@ -1,0 +1,26 @@
+/**
+message SignalData {
+    string message = 1;
+}
+*/
+
+// name: OnSignal
+// param: SignalData data
+
+el {
+    div {
+        ~ {
+            on:signal:my_signal "console.log('Signal received:', evt.detail)"
+        }
+
+        h2 "On Signal Example"
+        p "Listening for 'my_signal'..."
+
+        button {
+            ~ {
+                on:click "@post('/trigger-signal')"
+            }
+            "Trigger Signal from Server"
+        }
+    }
+}

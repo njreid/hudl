@@ -169,7 +169,7 @@ pub fn datastar_attr_to_html(attr: &DatastarAttr) -> (String, Option<String>) {
     } else {
         // text, show, bind, persist, ref, teleport, and dynamic HTML attributes
         match attr.name.as_str() {
-            "bind" | "text" | "show" | "persist" | "ref" | "teleport" | "init" => {
+            "bind" | "text" | "show" | "persist" | "ref" | "teleport" | "init" | "title" => {
                 html_name.push_str(&attr.name);
             }
             _ => {

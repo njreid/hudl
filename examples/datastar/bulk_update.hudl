@@ -1,0 +1,77 @@
+/**
+message User {
+    string id = 1;
+    string name = 2;
+    string email = 3;
+    string status = 4;
+}
+message BulkUpdateData {
+    repeated User users = 1;
+}
+*/
+
+// name: BulkUpdate
+// param: BulkUpdateData data
+
+el {
+    div {
+        ~ {
+            let:selected "{}"
+        }
+
+        h2 "Bulk Update"
+
+        table {
+            thead {
+                tr {
+                    th "Name"
+                    th "Email"
+                    th "Status"
+                    th {
+                        input type="checkbox" {
+                            ~ {
+                                on:click "@toggleAll('selected.*')"
+                            }
+                        }
+                    }
+                }
+            }
+            tbody {
+                each user `data.users` {
+                    tr {
+                        ~ {
+                            .selected "$selected['`user.id`']"
+                        }
+                        td `user.name`
+                        td `user.email`
+                        td `user.status`
+                        td {
+                            input type="checkbox" {
+                                ~ {
+                                    bind "selected['`user.id`']"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        div.actions {
+            button {
+                ~ {
+                    on:click "@post('/users/bulk-activate', {ids: Object.keys($selected).filter(id => $selected[id])})"
+                    disabled "Object.values($selected).filter(v => v).length == 0"
+                }
+                "Activate Selected"
+            }
+            button {
+                ~ {
+                    on:click "@post('/users/bulk-deactivate', {ids: Object.keys($selected).filter(id => $selected[id])})"
+                    disabled "Object.values($selected).filter(v => v).length == 0"
+                }
+                "Deactivate Selected"
+            }
+        }
+    }
+}

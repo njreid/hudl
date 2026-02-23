@@ -1,0 +1,28 @@
+/**
+message TitleData {
+    string title = 1;
+    int32 count = 2;
+}
+*/
+
+// name: TitleUpdate
+// param: TitleData data
+
+el {
+    div {
+        ~ {
+            let:count `data.count`
+        }
+
+        // data-title updates the document title
+        div {
+            ~ {
+                title "'Count is ' + $count"
+            }
+        }
+
+        h2 ~text="'Current count: ' + $count"
+
+        button ~on:click="$count++" "Increment"
+    }
+}

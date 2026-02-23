@@ -1,0 +1,35 @@
+/**
+message DBRow {
+    string id = 1;
+    string name = 2;
+    repeated float queries = 3;
+}
+message DBData {
+    repeated DBRow rows = 1;
+}
+*/
+
+// name: DBMon
+// param: DBData data
+
+el {
+    table.table.table-striped.latest-data {
+        tbody {
+            each row `data.rows` {
+                tr {
+                    td.query-count {
+                        span.label `size(row.queries)`
+                    }
+                    each q `row.queries` {
+                        td {
+                            ~ {
+                                .elapsed "$q > 50 ? 'warn' : 'ok'"
+                            }
+                            `q`
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

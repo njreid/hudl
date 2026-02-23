@@ -1,0 +1,68 @@
+/**
+message Todo {
+    string id = 1;
+    string text = 2;
+    bool completed = 3;
+}
+message TodoMVCData {
+    repeated Todo todos = 1;
+    string filter = 2;
+    int32 active_count = 3;
+}
+*/
+
+// name: TodoMVC
+// param: TodoMVCData data
+
+el {
+    section.todoapp {
+        header.header {
+            h1 "todos"
+            input.new-todo placeholder="What needs to be done?" autofocus=true {
+                ~ {
+                    on:keydown.enter "@post('/todos', {text: $el.value}); $el.value = ''"
+                }
+            }
+        }
+
+        if `size(data.todos) > 0` {
+            section.main {
+                input#toggle-all.toggle-all type="checkbox" {
+                    ~ {
+                        on:click "@post('/todos/toggle-all')"
+                    }
+                }
+                label for="toggle-all" "Mark all as complete"
+                
+                ul.todo-list {
+                    each todo `data.todos` {
+                        li ~class:completed="`todo.completed`" {
+                            div.view {
+                                input.toggle type="checkbox" checked="`todo.completed`" {
+                                    ~ {
+                                        on:click "@put('/todos/' + '`todo.id`' + '/toggle')"
+                                    }
+                                }
+                                label ~on:dblclick="@get('/todos/' + '`todo.id`' + '/edit')" `todo.text`
+                                button.destroy ~on:click="@delete('/todos/' + '`todo.id`')" ""
+                            }
+                        }
+                    }
+                }
+            }
+
+            footer.footer {
+                span.todo-count {
+                    strong `data.active_count`
+                    " items left"
+                }
+                ul.filters {
+                    li { a href="#/" ~class:selected="`data.filter == 'all'`" "All" }
+                    li { a href="#/active" ~class:selected="`data.filter == 'active'`" "Active" }
+                    li { a href="#/completed" ~class:selected="`data.filter == 'completed'`" "Completed" }
+                }
+                button.clear-completed ~on:click="@post('/todos/clear-completed')" "Clear completed"
+            }
+        }
+    }
+}

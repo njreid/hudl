@@ -63,7 +63,7 @@ pub fn check_switch(
     None
 }
 
-use crate::param::{ParamDef, ParamDef as Param};
+use crate::param::ParamDef;
 
 /// Check switch exhaustiveness using proto schema for enum types.
 ///

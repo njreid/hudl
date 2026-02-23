@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::BroadcastStream;
-use tokio_stream::{StreamExt as _, StreamExt};
+use tokio_stream::StreamExt as _;
 
 /// Parsed and cached template ready for rendering.
 struct CachedTemplate {

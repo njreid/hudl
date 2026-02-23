@@ -1,0 +1,34 @@
+/**
+message Item {
+    string id = 1;
+    string label = 2;
+}
+message Page {
+    repeated Item items = 1;
+    int32 next_offset = 2;
+    bool has_more = 3;
+}
+*/
+
+// name: InfiniteScroll
+// param: Page page
+
+el {
+    div#items-container {
+        each item `page.items` {
+            div.item {
+                ~ { ref "item_`item.id`" }
+                `item.label`
+            }
+        }
+
+        if `page.has_more` {
+            div#load-more {
+                ~ {
+                    on:intersect~once "@get('/items?offset=' + '`page.next_offset`')"
+                }
+                "Loading more..."
+            }
+        }
+    }
+}

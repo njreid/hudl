@@ -1,0 +1,34 @@
+/**
+message Item {
+    string id = 1;
+    string label = 2;
+}
+message ClickToLoadData {
+    repeated Item items = 1;
+    int32 next_page = 2;
+    bool has_more = 3;
+}
+*/
+
+// name: ClickToLoad
+// param: ClickToLoadData data
+
+el {
+    div {
+        div#items {
+            each item `data.items` {
+                div.item `item.label`
+            }
+        }
+
+        if `data.has_more` {
+            button#load-more-btn {
+                ~ {
+                    on:click "@get('/items?page=' + '`data.next_page`')"
+                    on:fetch "$el.disabled = evt.detail.type == 'started'"
+                }
+                "Load More"
+            }
+        }
+    }
+}

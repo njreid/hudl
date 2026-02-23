@@ -1,0 +1,32 @@
+/**
+message SearchResults {
+    repeated string results = 1;
+}
+*/
+
+// name: Indicator
+// param: SearchResults results
+
+el {
+    div {
+        button {
+            ~ {
+                on:click "@get('/search')"
+                on:fetch "$loading = evt.detail.type == 'started'"
+            }
+            "Search"
+        }
+
+        span.htmx-indicator {
+            ~ { show $loading }
+            img src="/spinner.svg"
+            " Searching..."
+        }
+
+        div#results {
+            each res `results.results` {
+                div `res`
+            }
+        }
+    }
+}
