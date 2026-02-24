@@ -134,7 +134,7 @@ module.exports = grammar({
       optional($.type),
       choice(
         alias(choice('el', 'if', 'else', 'case', 'default', 'import'), $.hudl_keyword),
-        alias($._datastar_identifier, $.datastar_identifier),
+        $.datastar_identifier,
         $.identifier,
       ),
       repeat(seq(repeat1($._node_space), $.node_field)),
@@ -181,20 +181,46 @@ module.exports = grammar({
       '`',
     ),
 
-    _datastar_identifier: _ => token(
-      prec(2, choice(
-        seq(
-          '~',
-          /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}_~!@#\$%\^&\*.:'\|\?&&[^\s\d\/(){}<>;\[\]=,"`]]/,
-          /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\/(){}<>;\[\]=,"`]]*/,
-        ),
-        // Known Datastar attributes when used as node names (inside ~ block)
-        choice(
-          'show', 'text', 'persist', 'ref', 'teleport', 'scrollIntoView', 'bind',
-          seq(choice('let', 'on', 'class'), ':', /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\/(){}<>;\[\]=,"`]]*/),
-          seq('.', /[\u4E00-\u9FFF\p{L}\p{M}\p{N}\p{Emoji}\-_~!@#\$%\^&\*.:'\|\?+&&[^\s\/(){}<>;\[\]=,"`]]+/),
-        ),
-      )),
+    datastar_identifier: $ => choice(
+      $.datastar_attr_let,
+      $.datastar_attr_on,
+      $.datastar_attr_class,
+      $.datastar_attr_other,
+      $.datastar_attr_shorthand,
+      $.datastar_attr_custom,
+    ),
+
+    datastar_attr_let: $ => seq(
+      optional('~'),
+      'let:',
+      field('name', alias($._bare_identifier, $.datastar_signal))
+    ),
+
+    datastar_attr_on: $ => seq(
+      optional('~'),
+      'on:',
+      field('name', alias($._bare_identifier, $.datastar_event))
+    ),
+
+    datastar_attr_class: $ => seq(
+      optional('~'),
+      'class:',
+      field('name', $._bare_identifier)
+    ),
+
+    datastar_attr_shorthand: $ => seq(
+      '.',
+      field('name', $._bare_identifier)
+    ),
+
+    datastar_attr_other: $ => seq(
+      optional('~'),
+      choice('show', 'text', 'persist', 'ref', 'teleport', 'scrollIntoView', 'bind')
+    ),
+
+    datastar_attr_custom: $ => seq(
+      '~',
+      $._bare_identifier
     ),
 
     _bare_identifier: $ =>
@@ -225,7 +251,7 @@ module.exports = grammar({
     keyword: $ => choice($.boolean, 'null'),
     annotation_type: _ => choice(...ANNOTATION_BUILTINS),
     prop: $ => seq(
-      field('name', choice(alias($._datastar_identifier, $.datastar_identifier), $.identifier)),
+      field('name', choice($.datastar_identifier, $.identifier)),
       '=',
       field('value', $.value),
     ),

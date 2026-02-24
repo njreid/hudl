@@ -1,27 +1,26 @@
 /**
 message CustomEventData {
-    string last_event = 1;
+  string last_event = 1;
 }
 */
 
 // name: CustomEvent
 // param: CustomEventData data
-
 el {
-    div {
-        ~ {
-            on:my-custom-event "$lastEvent = evt.detail.message"
-            let:lastEvent "None"
-        }
-
-        h2 "Custom Event Example"
-        p { "Last event: " span ~text="$lastEvent" }
-
-        button {
-            ~ {
-                on:click "dispatchCustomEvent($el, 'my-custom-event', {message: 'Hello from button!'})"
-            }
-            "Dispatch Custom Event"
-        }
+  div {
+    ~ {
+      on:my-custom-event "$lastEvent = evt.detail.message"
+      let:lastEvent "None"
     }
+    h2 "Custom Event Example"
+    p {
+      Last "event:" "span" ~text="$lastEvent"
+    }
+    button {
+      ~ {
+        on:click "dispatchCustomEvent($el, 'my-custom-event', {message: 'Hello from button!'})"
+      }
+      Dispatch "Custom" "Event"
+    }
+  }
 }

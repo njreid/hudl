@@ -10,7 +10,8 @@ struct AttrCategory {
 /// Wildcard modifier entries end with `:*` meaning any suffix after `:` is valid
 const EVENT_MODIFIERS: &[&str] = &[
     "once", "prevent", "stop", "capture", "outside", "passive",
-    "window", "document", "debounce:*", "throttle:*",
+    "window", "document", "debounce:*", "throttle:*", "delay:*",
+    "leading", "notrailing", "noleading", "trailing",
 ];
 const INTERSECT_EXTRA: &[&str] = &["half", "full"];
 const FETCH_EXTRA: &[&str] = &[
@@ -23,16 +24,36 @@ const TELEPORT_MODIFIERS: &[&str] = &["prepend", "append"];
 const SCROLL_MODIFIERS: &[&str] = &[
     "smooth", "instant", "hstart", "hcenter", "hend", "vstart", "vcenter", "vend",
 ];
+const INTERVAL_MODIFIERS: &[&str] = &["duration:*", "leading", "viewtransition"];
+const SIGNAL_PATCH_MODIFIERS: &[&str] = &[
+    "delay:*", "debounce:*", "throttle:*", "leading", "notrailing", "noleading", "trailing"
+];
 const BIND_MODIFIERS: &[&str] = &["debounce:*", "throttle:*"];
 const NO_MODIFIERS: &[&str] = &[];
+
+/// Check if a name is a standard HTML attribute that can be used reactively
+fn is_html_attribute(name: &str) -> bool {
+    let common_attrs = [
+        "disabled", "checked", "readonly", "required", "selected", "multiple",
+        "hidden", "autofocus", "autocomplete", "src", "href", "target", "alt",
+        "title", "value", "placeholder", "type", "name", "id", "class", "style",
+        "rows", "cols", "min", "max", "step", "pattern", "for", "action", "method",
+        "enctype", "rel", "width", "height", "step", "minlength", "maxlength",
+    ];
+    common_attrs.contains(&name)
+}
 
 /// Classify a Datastar attribute name and return the valid modifier set
 fn classify_attr(name: &str) -> Option<AttrCategory> {
     if name == "on:intersect" {
         // Intersect gets event modifiers + its own extras
         Some(AttrCategory { valid_modifiers: &[] }) // handled specially
-    } else if name.starts_with("on:fetch") {
+    } else if name == "on:fetch" {
         Some(AttrCategory { valid_modifiers: &[] }) // handled specially
+    } else if name == "on:interval" {
+        Some(AttrCategory { valid_modifiers: INTERVAL_MODIFIERS })
+    } else if name == "on:signal-patch" {
+        Some(AttrCategory { valid_modifiers: SIGNAL_PATCH_MODIFIERS })
     } else if name.starts_with("on:") {
         Some(AttrCategory { valid_modifiers: EVENT_MODIFIERS })
     } else if name.starts_with("let:") {
@@ -41,11 +62,17 @@ fn classify_attr(name: &str) -> Option<AttrCategory> {
         Some(AttrCategory { valid_modifiers: NO_MODIFIERS })
     } else {
         match name {
-            "show" | "text" | "ref" | "init" => Some(AttrCategory { valid_modifiers: NO_MODIFIERS }),
+            "show" | "text" | "ref" | "init" | "indicator" | "effect" | "title" | 
+            "ignore" | "ignore-morph" | "preserve-attr" | "json-signals" | 
+            "on:signal-patch-filter" | "animate" | "custom-validity" | 
+            "query-string" | "replace-url" | "view-transition" => Some(AttrCategory { valid_modifiers: NO_MODIFIERS }),
             "bind" => Some(AttrCategory { valid_modifiers: BIND_MODIFIERS }),
             "persist" => Some(AttrCategory { valid_modifiers: PERSIST_MODIFIERS }),
             "teleport" => Some(AttrCategory { valid_modifiers: TELEPORT_MODIFIERS }),
             "scrollIntoView" => Some(AttrCategory { valid_modifiers: SCROLL_MODIFIERS }),
+            "on:raf" | "on:resize" => Some(AttrCategory { valid_modifiers: EVENT_MODIFIERS }),
+            // Allow any standard HTML attribute name as a reactive attribute
+            _ if is_html_attribute(name) => Some(AttrCategory { valid_modifiers: NO_MODIFIERS }),
             _ => None, // Unknown attribute
         }
     }
@@ -351,16 +378,25 @@ fn attribute_completions() -> Vec<CompletionItem> {
         ("init", "Trigger logic on element initialization", "init"),
         ("on:intersect", "Intersection observer trigger", "on:intersect"),
         ("on:fetch", "Fetch event handler", "on:fetch"),
+        ("on:interval", "Run expression at interval", "on:interval"),
+        ("on:signal-patch", "Run expression on signal patch", "on:signal-patch"),
+        ("on:signal-patch-filter", "Filter signals for patch handler", "on:signal-patch-filter"),
         ("init", "Trigger logic on element initialization", "init"),
         ("show", "Conditionally show/hide element", "show"),
         ("text", "Set element text content", "text"),
+        ("indicator", "Loading indicator signal", "indicator"),
+        ("effect", "Reactive side effect", "effect"),
+        ("ignore", "Ignore element and descendants", "ignore"),
         ("ref", "Element reference", "ref"),
         ("bind", "Two-way data binding", "bind"),
         ("let:", "Define a signal", "let:"),
         ("persist", "Persist signals to storage", "persist"),
         ("teleport", "Move element to another location", "teleport"),
         ("scrollIntoView", "Scroll element into view", "scrollIntoView"),
+        ("title", "Update document title", "title"),
         (".class", "Toggle CSS class", "."),
+        ("disabled", "Reactive disabled attribute", "disabled"),
+        ("checked", "Reactive checked attribute", "checked"),
         ("class:", "Toggle CSS class (alt syntax)", "class:"),
     ];
 
@@ -442,6 +478,8 @@ mod tests {
         assert!(classify_attr("on:click").is_some());
         assert!(classify_attr("on:intersect").is_some());
         assert!(classify_attr("on:fetch").is_some());
+        assert!(classify_attr("on:interval").is_some());
+        assert!(classify_attr("on:signal-patch").is_some());
         assert!(classify_attr("let:count").is_some());
         assert!(classify_attr("show").is_some());
         assert!(classify_attr("text").is_some());
@@ -450,6 +488,9 @@ mod tests {
         assert!(classify_attr("persist").is_some());
         assert!(classify_attr("teleport").is_some());
         assert!(classify_attr("scrollIntoView").is_some());
+        assert!(classify_attr("disabled").is_some());
+        assert!(classify_attr("checked").is_some());
+        assert!(classify_attr("indicator").is_some());
         assert!(classify_attr(".active").is_some());
         assert!(classify_attr("class:active").is_some());
     }

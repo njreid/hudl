@@ -566,13 +566,8 @@
               "value": "hudl_keyword"
             },
             {
-              "type": "ALIAS",
-              "content": {
-                "type": "SYMBOL",
-                "name": "_datastar_identifier"
-              },
-              "named": true,
-              "value": "datastar_identifier"
+              "type": "SYMBOL",
+              "name": "datastar_identifier"
             },
             {
               "type": "SYMBOL",
@@ -919,110 +914,211 @@
         }
       ]
     },
-    "_datastar_identifier": {
-      "type": "TOKEN",
-      "content": {
-        "type": "PREC",
-        "value": 2,
-        "content": {
+    "datastar_identifier": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "datastar_attr_let"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "datastar_attr_on"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "datastar_attr_class"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "datastar_attr_other"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "datastar_attr_shorthand"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "datastar_attr_custom"
+        }
+      ]
+    },
+    "datastar_attr_let": {
+      "type": "SEQ",
+      "members": [
+        {
           "type": "CHOICE",
           "members": [
             {
-              "type": "SEQ",
-              "members": [
-                {
-                  "type": "STRING",
-                  "value": "~"
-                },
-                {
-                  "type": "PATTERN",
-                  "value": "[\\u4E00-\\u9FFF\\p{L}\\p{M}\\p{N}\\p{Emoji}_~!@#\\$%\\^&\\*.:'\\|\\?&&[^\\s\\d\\/(){}<>;\\[\\]=,\"`]]"
-                },
-                {
-                  "type": "PATTERN",
-                  "value": "[\\u4E00-\\u9FFF\\p{L}\\p{M}\\p{N}\\p{Emoji}\\-_~!@#\\$%\\^&\\*.:'\\|\\?+&&[^\\s\\/(){}<>;\\[\\]=,\"`]]*"
-                }
-              ]
+              "type": "STRING",
+              "value": "~"
             },
             {
-              "type": "CHOICE",
-              "members": [
-                {
-                  "type": "STRING",
-                  "value": "show"
-                },
-                {
-                  "type": "STRING",
-                  "value": "text"
-                },
-                {
-                  "type": "STRING",
-                  "value": "persist"
-                },
-                {
-                  "type": "STRING",
-                  "value": "ref"
-                },
-                {
-                  "type": "STRING",
-                  "value": "teleport"
-                },
-                {
-                  "type": "STRING",
-                  "value": "scrollIntoView"
-                },
-                {
-                  "type": "STRING",
-                  "value": "bind"
-                },
-                {
-                  "type": "SEQ",
-                  "members": [
-                    {
-                      "type": "CHOICE",
-                      "members": [
-                        {
-                          "type": "STRING",
-                          "value": "let"
-                        },
-                        {
-                          "type": "STRING",
-                          "value": "on"
-                        },
-                        {
-                          "type": "STRING",
-                          "value": "class"
-                        }
-                      ]
-                    },
-                    {
-                      "type": "STRING",
-                      "value": ":"
-                    },
-                    {
-                      "type": "PATTERN",
-                      "value": "[\\u4E00-\\u9FFF\\p{L}\\p{M}\\p{N}\\p{Emoji}\\-_~!@#\\$%\\^&\\*.:'\\|\\?+&&[^\\s\\/(){}<>;\\[\\]=,\"`]]*"
-                    }
-                  ]
-                },
-                {
-                  "type": "SEQ",
-                  "members": [
-                    {
-                      "type": "STRING",
-                      "value": "."
-                    },
-                    {
-                      "type": "PATTERN",
-                      "value": "[\\u4E00-\\u9FFF\\p{L}\\p{M}\\p{N}\\p{Emoji}\\-_~!@#\\$%\\^&\\*.:'\\|\\?+&&[^\\s\\/(){}<>;\\[\\]=,\"`]]+"
-                    }
-                  ]
-                }
-              ]
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "let:"
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_bare_identifier"
+            },
+            "named": true,
+            "value": "datastar_signal"
+          }
+        }
+      ]
+    },
+    "datastar_attr_on": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "~"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "on:"
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "ALIAS",
+            "content": {
+              "type": "SYMBOL",
+              "name": "_bare_identifier"
+            },
+            "named": true,
+            "value": "datastar_event"
+          }
+        }
+      ]
+    },
+    "datastar_attr_class": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "~"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "class:"
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_bare_identifier"
+          }
+        }
+      ]
+    },
+    "datastar_attr_shorthand": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "."
+        },
+        {
+          "type": "FIELD",
+          "name": "name",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_bare_identifier"
+          }
+        }
+      ]
+    },
+    "datastar_attr_other": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "~"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "show"
+            },
+            {
+              "type": "STRING",
+              "value": "text"
+            },
+            {
+              "type": "STRING",
+              "value": "persist"
+            },
+            {
+              "type": "STRING",
+              "value": "ref"
+            },
+            {
+              "type": "STRING",
+              "value": "teleport"
+            },
+            {
+              "type": "STRING",
+              "value": "scrollIntoView"
+            },
+            {
+              "type": "STRING",
+              "value": "bind"
             }
           ]
         }
-      }
+      ]
+    },
+    "datastar_attr_custom": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "~"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "_bare_identifier"
+        }
+      ]
     },
     "_bare_identifier": {
       "type": "CHOICE",
@@ -1279,13 +1375,8 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "ALIAS",
-                "content": {
-                  "type": "SYMBOL",
-                  "name": "_datastar_identifier"
-                },
-                "named": true,
-                "value": "datastar_identifier"
+                "type": "SYMBOL",
+                "name": "datastar_identifier"
               },
               {
                 "type": "SYMBOL",
